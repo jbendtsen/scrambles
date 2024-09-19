@@ -37,12 +37,19 @@ var boardTileTypeLookup = [...]int32 {
     0, 0, 3, 0, 0, 0, 3, 0,
 }
 
-var boardTileColorsRGBA = [...]uint32 {
-    0,
-    0xffe020ff,
+var boardTileColorsRgba = [...]uint32 {
+    0x00902cff,
+    0xffc020ff,
     0xe00000ff,
-    0x80e0ffff,
-    0x0040ffff,
+    0x80d0ffff,
+    0x00a0e0ff,
+}
+
+func updateColor(color *color.RGBA, rgba uint32) {
+	color.R = uint8((rgba >> 24) & 0xff)
+	color.G = uint8((rgba >> 16) & 0xff)
+	color.B = uint8((rgba >> 8) & 0xff)
+	color.A = uint8(rgba & 0xff)
 }
 
 func getTileType(x, y int32) int32 {
@@ -53,16 +60,19 @@ func getTileType(x, y int32) int32 {
         return DOUBLE_WORD
     }
 
+	ox := x
+	oy := y
+
     if x >= 7 && y >= 8 {
-        x = 15 - x
-        y = 15 - y
+        x = 14 - x
+        y = 14 - y
     } else if x >= 8 && y <= 7 {
         temp := x
         x = y
-        y = 15 - temp
+        y = 14 - temp
     } else if x <= 7 && y >= 7 {
         temp := x
-        x = 15 - y
+        x = 14 - y
         y = temp
     }
 
@@ -90,8 +100,11 @@ func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int3
         return tileSize
     }
 
-    boardLen := int(tileSize * 15)
-	canvas := rl.GenImageColor(boardLen, boardLen, color.RGBA{0, 192, 64, 255})
+	c := color.RGBA{}
+	updateColor(&c, boardTileColorsRgba[0])
+
+	boardLen := int(tileSize * 15)
+	canvas := rl.GenImageColor(boardLen, boardLen, c)
 
     topTri    := Triangle{tileSize / 2, -tileSize / 6, 2 * tileSize / 3, 0, tileSize / 3, 0}
     leftTri   := Triangle{-tileSize / 6, tileSize / 2, 0, tileSize / 3, 0, 2 * tileSize / 3}
@@ -103,9 +116,9 @@ func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int3
         for x := int32(0); x < 15; x++ {
             tt := getTileType(x, y)
             if tt != 0 {
-                rgba := boardTileColorsRGBA[tt]
-                color := color.RGBA{uint8((rgba >> 24) & 0xff), uint8((rgba >> 16) & 0xff), uint8((rgba >> 8) & 0xff), uint8(rgba & 0xff)}
-                rl.ImageDrawRectangle(canvas, x * tileSize, y * tileSize, tileSize, tileSize, color)
+                rgba := boardTileColorsRgba[tt]
+                updateColor(&c, rgba)
+                rl.ImageDrawRectangle(canvas, x * tileSize, y * tileSize, tileSize, tileSize, c)
                 renderTriangle(canvas.Data, tileSize * 15, tileSize * 15, x * tileSize, y * tileSize, &topTri, rgba)
                 renderTriangle(canvas.Data, tileSize * 15, tileSize * 15, x * tileSize, y * tileSize, &leftTri, rgba)
                 renderTriangle(canvas.Data, tileSize * 15, tileSize * 15, x * tileSize, y * tileSize, &rightTri, rgba)
@@ -115,8 +128,8 @@ func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int3
     }
 
     // draw gridlines
-    lineColor := color.RGBA{224, 224, 255, 255}
-    lineWidth := tileSize / 8
+    lineColor := color.RGBA{192, 240, 255, 255}
+    lineWidth := tileSize / 10
     lineOff := tileSize - (lineWidth / 2)
     for i := int32(0); i < 14; i++ {
         rl.ImageDrawRectangle(canvas, 0, i * tileSize + lineOff, tileSize * 15, lineWidth, lineColor)
@@ -156,6 +169,7 @@ func main() {
 		return
 	}
 
+	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(800, 450, "scrambles")
 	defer rl.CloseWindow()
 
@@ -177,7 +191,7 @@ func main() {
 		}
 
 		rl.BeginDrawing()
-		rl.ClearBackground(color.RGBA{0, 0x68, 0x3a, 0xff})
+		rl.ClearBackground(color.RGBA{0, 0x68, 0x30, 0xff})
 
         /*
 		if openingTimer < maxOpeningTime {
