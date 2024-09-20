@@ -4,38 +4,11 @@ import (
 	"io"
 	"os"
 	"fmt"
+	"time"
 	"strings"
 	"image/color"
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
-
-type MainMenu struct {
-	nPlayers int
-	timeLimit int
-}
-
-type Game struct {
-	menu MainMenu
-	wndWidth int32
-	wndHeight int32
-	tileSize int32
-}
-
-const NORMAL = 0
-const DOUBLE_WORD = 1
-const TRIPLE_WORD = 2
-const DOUBLE_LETTER = 3
-const TRIPLE_LETTER = 4
-
-var boardTileTypeLookup = [...]int32 {
-    2, 0, 0, 3, 0, 0, 0, 2,
-    0, 1, 0, 0, 0, 4, 0, 0,
-    0, 0, 1, 0, 0, 0, 3, 0,
-    3, 0, 0, 1, 0, 0, 0, 3,
-    0, 0, 0, 0, 1, 0, 0, 0,
-    0, 4, 0, 0, 0, 4, 0, 0,
-    0, 0, 3, 0, 0, 0, 3, 0,
-}
 
 var boardTileColorsRgba = [...]uint32 {
     0x00902cff,
@@ -52,33 +25,6 @@ func updateColor(color *color.RGBA, rgba uint32) {
 	color.A = uint8(rgba & 0xff)
 }
 
-func getTileType(x, y int32) int32 {
-    if x < 0 || y < 0 || x >= 15 || y >= 15 {
-        return NORMAL
-    }
-    if x == 7 && y == 7 {
-        return DOUBLE_WORD
-    }
-
-	ox := x
-	oy := y
-
-    if x >= 7 && y >= 8 {
-        x = 14 - x
-        y = 14 - y
-    } else if x >= 8 && y <= 7 {
-        temp := x
-        x = y
-        y = 14 - temp
-    } else if x <= 7 && y >= 7 {
-        temp := x
-        x = 14 - y
-        y = temp
-    }
-
-    return boardTileTypeLookup[x + 8 * y]
-}
-
 func drawMenu(game *Game, isActive bool) {
 	
 }
@@ -90,12 +36,12 @@ func drawFallingBoard(t float32) {
 func drawGame(game *Game, boardTex rl.Texture2D) {
     boardLen := game.tileSize * 15
     var xOff int32 = int32(game.wndWidth - boardLen) / 2
-    var yOff int32 = int32(game.wndHeight - boardLen) / 2
+    var yOff int32 = int32(game.wndHeight - boardLen - 2 * game.tileSize) / 2
 	rl.DrawTexture(boardTex, xOff, yOff, rl.White)
 }
 
 func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int32) (tileSize int32) {
-	tileSize = int32(min(wndWidth / 16, wndHeight / 18))
+	tileSize = int32(min(wndWidth / 16, wndHeight / 20))
     if tileSize == oldTileSize {
         return tileSize
     }
@@ -129,7 +75,7 @@ func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int3
 
     // draw gridlines
     lineColor := color.RGBA{192, 240, 255, 255}
-    lineWidth := tileSize / 10
+    lineWidth := tileSize / 12
     lineOff := tileSize - (lineWidth / 2)
     for i := int32(0); i < 14; i++ {
         rl.ImageDrawRectangle(canvas, 0, i * tileSize + lineOff, tileSize * 15, lineWidth, lineColor)
@@ -176,6 +122,7 @@ func main() {
 	rl.SetTargetFPS(60)
 
 	game := Game{}
+	game.startupTimestamp = time.Now().UnixMilli()
 	boardTex := rl.Texture2D{}
 
 	//openingTimer := 0
@@ -204,6 +151,7 @@ func main() {
 		}
 		*/
 		drawGame(&game, boardTex)
+		game.frameCounter += 1
 
 		rl.EndDrawing()
 	}

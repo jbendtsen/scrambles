@@ -32,3 +32,63 @@ func renderTriangle(ptr unsafe.Pointer, w, h int32, ox, oy int32, t *Triangle, r
 		}
 	}
 }
+
+func generateNext128(startupTimestamp int64, frameCounter int64, prevHash64 uint64) (uint64, uint64) {
+	const c1 = uint64(0x87c37b91114253d5)
+	const c2 = uint64(0x4cf5ad432745937f)
+
+	a := uint64(startupTimestamp)
+	b := uint64(prevHash64)
+	h1 := uint64(frameCounter)
+	h2 := uint64(frameCounter)
+
+	a *= c1
+	a = (a << 31) | (a >> (64 - 31)) //ROTL64(a, 31);
+	a *= c2
+	h1 ^= a
+
+	h1 = (h1 << 27) | (h1 >> (64 - 27)) //ROTL64(h1, 27);
+	h1 += h2
+	h1 = h1*5 + 0x52dce729
+
+	b *= c2
+	b = (b << 33) | (b >> (64 - 33)) //ROTL64(b, 33);
+	b *= c1
+	h2 ^= b
+
+	h2 = (h2 << 31) | (h2 >> (64 - 31)) //ROTL64(h2, 31);
+	h2 += h1
+	h2 = h2*5 + 0x38495ab5
+
+	a *= c1
+	a = (a << 31) | (a >> (64 - 31)) //ROTL64(a, 31);
+	a *= c2
+	h1 ^= a
+
+	const size = uint64(16)
+	h1 ^= size
+	h2 ^= size
+
+	h1 += h2
+	h2 += h1
+
+	const d1 = uint64(0xff51afd7ed558ccd)
+	const d2 = uint64(0xc4ceb9fe1a85ec53)
+
+	h1 ^= h1 >> 33
+	h1 *= d1
+	h1 ^= h1 >> 33
+	h1 *= d2
+	h1 ^= h1 >> 33
+
+	h2 ^= h2 >> 33
+	h2 *= d1
+	h2 ^= h2 >> 33
+	h2 *= d2
+	h2 ^= h2 >> 33
+
+	h1 += h2
+	h2 += h1
+
+	return h1, h2
+}
