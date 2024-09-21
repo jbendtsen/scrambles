@@ -8,6 +8,8 @@ type MainMenu struct {
 type Game struct {
 	menu MainMenu
 	bagMap []int32
+	wordsList []string
+	wordMap map[string]int
 	startupTimestamp int64
 	frameCounter int64
 	prevHash64 uint64

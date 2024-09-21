@@ -4,11 +4,22 @@ import (
 	"io"
 	"os"
 	"fmt"
+	"math"
 	"time"
 	"strings"
 	"image/color"
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
+
+type Textures struct {
+	board rl.Texture2D
+	tiles rl.Texture2D
+	letterFont rl.Font
+	numberFont rl.Font
+	letterGlyphs []rl.GlyphInfo
+	numberGlyphs []rl.GlyphInfo
+	fontData []byte
+}
 
 var boardTileColorsRgba = [...]uint32 {
     0x00902cff,
@@ -29,15 +40,37 @@ func drawMenu(game *Game, isActive bool) {
 	
 }
 
-func drawFallingBoard(t float32) {
-	
-}
+func drawBoard(game *Game, boardTex rl.Texture2D, tBoardFall float32) {
+	if tBoardFall == 0.0 {
+		return
+	}
 
-func drawGame(game *Game, boardTex rl.Texture2D) {
     boardLen := game.tileSize * 15
     var xOff int32 = int32(game.wndWidth - boardLen) / 2
     var yOff int32 = int32(game.wndHeight - boardLen - 2 * game.tileSize) / 2
-	rl.DrawTexture(boardTex, xOff, yOff, rl.White)
+
+	it := (1.0 - tBoardFall)
+	it2 := it * it
+	t2 := tBoardFall * tBoardFall
+	t4 := t2 * t2
+
+	scale := float32(1.0 + 2.0 * it2 * float32(math.Abs(math.Cos(float64(t4 * 2.0 * math.Pi)))))
+	dScaled := float32(boardLen) * scale
+
+	origin := rl.Vector2{dScaled * 0.5, dScaled * 0.5}
+	srcRect := rl.Rectangle{0, 0, float32(boardLen), float32(boardLen)}
+	dstRect := rl.Rectangle{float32(xOff) + float32(boardLen) * 0.5, float32(yOff) + float32(boardLen) * 0.5, dScaled, dScaled}
+
+	boardRotation := it2 * 30.0
+
+	boardTint := rl.White
+	boardTint.A = uint8(int(t2 * 255.0) & 0xff)
+
+	rl.DrawTexturePro(boardTex, srcRect, dstRect, origin, boardRotation, boardTint)
+}
+
+func drawGame(game *Game, textures *Textures) {
+	
 }
 
 func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int32) (tileSize int32) {
@@ -92,6 +125,84 @@ func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int3
     return tileSize
 }
 
+func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) (tileSize int32) {
+	tileSize = maybeRecreateBoard(&textures.board, wndWidth, wndHeight, oldTileSize)
+	if tileSize == oldTileSize {
+		return tileSize
+	}
+
+	letterCodePoints =  make([]int32, 26)
+	for i := 0; i < 26; i++ {
+		letterCodePoints[i] = int32(0x41 + i)
+	}
+
+	textures.letterFont = rl.LoadFontFromMemory(
+		".ttf",
+		textures.fontData,
+		len(textures.fontData),
+		tileSize / 2,
+		letterCodePoints,
+		rl.FontDefault
+	)
+
+	numberCodePoints = make([]int32, 10)
+	for i := 0; i < 26; i++ {
+		numberCodePoints[i] = int32(0x30 + i)
+	}
+
+	textures.numberFont = rl.LoadFontFromMemory(
+		".ttf",
+		textures.fontData,
+		len(textures.fontData),
+		tileSize / 6,
+		numberCodePoints,
+		rl.FontDefault
+	)
+
+	textures.letterGlyphs = rl.LoadFontData(
+		
+	)
+
+	textures.numberGlyphs
+}
+
+func loadTtfData() []byte {
+	entries, err := os.ReadDir("assets/")
+	if err != nil {
+		fmt.Println("Could not open assets folder")
+		return nil
+	}
+
+	var ttfName string
+	for i := 0; i < len(entries); i++ {
+		fname := entries[i].Name()
+		if strings.HasSuffix(fname, ".ttf") {
+			ttfName = fname
+			break
+		}
+	}
+
+	if ttfName == "" {
+		fmt.Println("Could not a ttf file in the assets folder")
+		return nil
+	}
+
+	f, err := os.Open("assets/" + ttfName)
+	if err != nil {
+		fmt.Println("Could not open assets/" + ttfName)
+		return nil
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		fmt.Println("Could not read font from assets/" + ttfName)
+		return nil
+	}
+
+	return data
+}
+
 func loadWords() []string {
 	wordsFile, err := os.Open("assets/all-words.txt")
 	if err != nil {
@@ -110,8 +221,21 @@ func loadWords() []string {
 }
 
 func main() {
-	wordsList := loadWords()
-	if wordsList == nil {
+	game := Game{}
+	game.startupTimestamp = time.Now().UnixMilli()
+
+	game.wordsList = loadWords()
+	if game.wordsList == nil {
+		return
+	}
+
+	game.wordMap = make(map[string]int)
+	for i := 0; i < len(game.wordsList); i++ {
+		game.wordMap[game.wordsList[i]] = i
+	}
+
+	ttfData := loadTtfData()
+	if ttfData == nil {
 		return
 	}
 
@@ -121,12 +245,11 @@ func main() {
 
 	rl.SetTargetFPS(60)
 
-	game := Game{}
-	game.startupTimestamp = time.Now().UnixMilli()
-	boardTex := rl.Texture2D{}
+	textures := Textures{}
+	textures.fontData = ttfData
 
-	//openingTimer := 0
-	const maxOpeningTime = 240
+	openingTimer := 0
+	const maxOpeningTime = 180
 
 	for !rl.WindowShouldClose() {
 	    w := int32(rl.GetRenderWidth())
@@ -134,24 +257,28 @@ func main() {
 		if game.wndWidth != w || game.wndHeight != h {
 			game.wndWidth = w
 			game.wndHeight = h
-			game.tileSize = maybeRecreateBoard(&boardTex, w, h, game.tileSize)
+			game.tileSize = updateTextures(&textures, w, h, game.tileSize)
 		}
 
 		rl.BeginDrawing()
 		rl.ClearBackground(color.RGBA{0, 0x68, 0x30, 0xff})
 
-        /*
+		tBoardFall := float32(1.0)
 		if openingTimer < maxOpeningTime {
 			drawMenu(&game, openingTimer == 0)
-			if openingTimer > 0 {
-				drawFallingBoard(float32(openingTimer) / float32(maxOpeningTime))
-			}
-		} else {
-			drawGame(&game)
+			tBoardFall = float32(openingTimer) / float32(maxOpeningTime)
 		}
-		*/
-		drawGame(&game, boardTex)
+
+		drawBoard(&game, textures.board, tBoardFall)
+
+		if openingTimer >= maxOpeningTime {
+			drawGame(&game, &textures)
+			openingTimer = maxOpeningTime
+		}
+
 		game.frameCounter += 1
+
+		openingTimer = int(game.frameCounter)
 
 		rl.EndDrawing()
 	}
