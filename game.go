@@ -41,7 +41,6 @@ var boardTileTypeLookup = [...]int32 {
 }
 
 var letters = [...]Letter {
-	{' ', 0, 2},
 	{'A', 1, 9},
 	{'B', 3, 2},
 	{'C', 3, 2},
@@ -68,6 +67,7 @@ var letters = [...]Letter {
 	{'X', 8, 1},
 	{'Y', 4, 2},
 	{'Z', 10, 1},
+	{' ', 0, 2},
 }
 
 func (game Game) getRandom(endExclusive int64) int64 {
@@ -142,7 +142,15 @@ func takeTileFromBag(game *Game, chars []byte) Letter {
 	game.bagMap = game.bagMap[:len(game.bagMap)-1]
 	ch := chars[selected]
 	if ch == ' ' {
-		return letters[0]
+		return letters[26]
 	}
-	return letters[ch - 0x40]
+	return letters[ch - 0x41]
+}
+
+func getLetterScores() (scores []int32) {
+    scores = make([]int32, 27)
+    for i := 0; i < 27; i++ {
+        scores[i] = letters[i].points
+    }
+    return scores
 }

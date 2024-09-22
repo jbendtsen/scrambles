@@ -14,8 +14,6 @@ import (
 type Textures struct {
 	board rl.Texture2D
 	tiles rl.Texture2D
-	letterFont rl.Font
-	numberFont rl.Font
 	letterGlyphs []rl.GlyphInfo
 	numberGlyphs []rl.GlyphInfo
 	fontData []byte
@@ -131,39 +129,106 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
 		return tileSize
 	}
 
-	letterCodePoints =  make([]int32, 26)
+    if textures.letterGlyphs != nil {
+        rl.UnloadFontData(textures.letterGlyphs)
+    }
+    if textures.numberGlyphs != nil {
+        rl.UnloadFontData(textures.numberGlyphs)
+    }
+
+	letterCodePoints := make([]int32, 26)
+	numberCodePoints := make([]int32, 10)
 	for i := 0; i < 26; i++ {
 		letterCodePoints[i] = int32(0x41 + i)
 	}
-
-	textures.letterFont = rl.LoadFontFromMemory(
-		".ttf",
-		textures.fontData,
-		len(textures.fontData),
-		tileSize / 2,
-		letterCodePoints,
-		rl.FontDefault
-	)
-
-	numberCodePoints = make([]int32, 10)
-	for i := 0; i < 26; i++ {
+	for i := 0; i < 10; i++ {
 		numberCodePoints[i] = int32(0x30 + i)
 	}
 
-	textures.numberFont = rl.LoadFontFromMemory(
-		".ttf",
-		textures.fontData,
-		len(textures.fontData),
-		tileSize / 6,
-		numberCodePoints,
-		rl.FontDefault
-	)
-
 	textures.letterGlyphs = rl.LoadFontData(
-		
+		textures.fontData,
+		int32(float64(tileSize) * 0.9),
+		letterCodePoints,
+		rl.FontDefault,
+	)
+	textures.numberGlyphs = rl.LoadFontData(
+		textures.fontData,
+		int32(float64(tileSize) * 0.33),
+		numberCodePoints,
+		rl.FontDefault,
 	)
 
-	textures.numberGlyphs
+    for i := 0; i < 26; i++ {
+        img := &textures.letterGlyphs[i].Image
+        rl.ImageFormat(img, rl.UncompressedR8g8b8a8)
+        setAlphaToBrightness(img.Data, img.Width, img.Height)
+    }
+    for i := 0; i < 10; i++ {
+        img := &textures.numberGlyphs[i].Image
+        rl.ImageFormat(img, rl.UncompressedR8g8b8a8)
+        setAlphaToBrightness(img.Data, img.Width, img.Height)
+    }
+
+    tileDisplaySize := min(tileSize - 1, int32(float64(tileSize) * 0.95))
+    tilesImage := rl.GenImageColor(int(9 * tileDisplaySize), int(3 * tileDisplaySize), color.RGBA{255, 224, 160, 255})
+
+    scores := getLetterScores()
+    srcRect := rl.Rectangle{}
+    dstRect := rl.Rectangle{}
+    for i := int32(0); i < 26; i++ {
+        letter := &textures.letterGlyphs[i].Image
+        lift := -float32(letter.Height) * 0.15
+        dstRect.X = float32(((i % 9) * tileDisplaySize) + (tileDisplaySize - letter.Width) / 2)
+        dstRect.Y = lift + float32(((i / 9) * tileDisplaySize) + (tileDisplaySize - letter.Height) / 2)
+        dstRect.Width  = float32(letter.Width)
+        dstRect.Height = float32(letter.Height)
+        srcRect.Width  = dstRect.Width
+        srcRect.Height = dstRect.Height
+        rl.ImageDraw(tilesImage, letter, srcRect, dstRect, rl.Black)
+
+        points := scores[i]
+        number := &textures.numberGlyphs[points % 10].Image
+        corner := 2 * tileDisplaySize / 3
+        dstRect.X = float32(((i % 9) * tileDisplaySize) + corner + (tileDisplaySize / 3 - number.Width) / 2)
+        dstRect.Y = float32(((i / 9) * tileDisplaySize) + corner + (tileDisplaySize / 3 - number.Height) / 2)
+        dstRect.Width  = float32(number.Width)
+        dstRect.Height = float32(number.Height)
+        srcRect.Width  = dstRect.Width
+        srcRect.Height = dstRect.Height
+        rl.ImageDraw(tilesImage, number, srcRect, dstRect, rl.Black)
+
+        if points >= 10 {
+            dstRect.X -= float32(number.Height)
+
+            number = &textures.numberGlyphs[(points / 10) % 10].Image
+            dstRect.Width  = float32(number.Width)
+            dstRect.Height = float32(number.Height)
+            srcRect.Width  = dstRect.Width
+            srcRect.Height = dstRect.Height
+            rl.ImageDraw(tilesImage, number, srcRect, dstRect, rl.Black)
+        }
+    }
+
+    {
+        blankNumber := &textures.numberGlyphs[2].Image
+        corner := 2 * tileDisplaySize / 3
+        dstRect.X = float32((8 * tileDisplaySize) + corner + (tileDisplaySize / 3 - blankNumber.Width) / 2)
+        dstRect.Y = float32((2 * tileDisplaySize) + corner + (tileDisplaySize / 3 - blankNumber.Height) / 2)
+        dstRect.Width  = float32(blankNumber.Width)
+        dstRect.Height = float32(blankNumber.Height)
+        srcRect.Width  = dstRect.Width
+        srcRect.Height = dstRect.Height
+        rl.ImageDraw(tilesImage, blankNumber, srcRect, dstRect, rl.Black)
+    }
+
+    if textures.tiles.ID > 0 {
+        rl.UnloadTexture(textures.tiles)
+    }
+
+    textures.tiles = rl.LoadTextureFromImage(tilesImage)
+    rl.UnloadImage(tilesImage)
+
+    return tileSize
 }
 
 func loadTtfData() []byte {
@@ -248,6 +313,7 @@ func main() {
 	textures := Textures{}
 	textures.fontData = ttfData
 
+    //gameStarted := false
 	openingTimer := 0
 	const maxOpeningTime = 180
 
@@ -263,23 +329,29 @@ func main() {
 		rl.BeginDrawing()
 		rl.ClearBackground(color.RGBA{0, 0x68, 0x30, 0xff})
 
-		tBoardFall := float32(1.0)
-		if openingTimer < maxOpeningTime {
-			drawMenu(&game, openingTimer == 0)
-			tBoardFall = float32(openingTimer) / float32(maxOpeningTime)
-		}
+        /*
+        if rl.IsMouseButtonPressed(0) {
+            gameStarted = true
+        }
+        */
 
-		drawBoard(&game, textures.board, tBoardFall)
+	    tBoardFall := float32(1.0)
+	    if openingTimer < maxOpeningTime {
+		    drawMenu(&game, openingTimer == 0)
+		    tBoardFall = float32(openingTimer) / float32(maxOpeningTime)
+	    }
 
-		if openingTimer >= maxOpeningTime {
-			drawGame(&game, &textures)
-			openingTimer = maxOpeningTime
-		}
+	    drawBoard(&game, textures.board, tBoardFall)
 
-		game.frameCounter += 1
+	    if openingTimer >= maxOpeningTime {
+		    drawGame(&game, &textures)
+		    openingTimer = maxOpeningTime
+	    }
 
-		openingTimer = int(game.frameCounter)
+	    openingTimer += 1
+        rl.DrawTexture(textures.tiles, 0, 0, rl.White)
 
 		rl.EndDrawing()
+		game.frameCounter += 1
 	}
 }

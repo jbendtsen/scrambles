@@ -33,6 +33,17 @@ func renderTriangle(ptr unsafe.Pointer, w, h int32, ox, oy int32, t *Triangle, r
 	}
 }
 
+func setAlphaToBrightness(ptr unsafe.Pointer, w, h int32) {
+    data := unsafe.Slice((*uint32)(ptr), w * h)
+    for y := int32(0); y < h; y++ {
+        for x := int32(0); x < w; x++ {
+            color := data[x + w * y]
+            lum := ((color & 0xff0000) >> 16) + ((color & 0xff00) >> 8) + (color & 0xff)
+            data[x + w * y] = (((lum / 3) & 0xff) << 24) | (color & 0xffffff)
+        }
+    }
+}
+
 func generateNext128(startupTimestamp int64, frameCounter int64, prevHash64 uint64) (uint64, uint64) {
 	const c1 = uint64(0x87c37b91114253d5)
 	const c2 = uint64(0x4cf5ad432745937f)
