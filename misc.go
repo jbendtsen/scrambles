@@ -33,6 +33,37 @@ func renderTriangle(ptr unsafe.Pointer, w, h int32, ox, oy int32, t *Triangle, r
 	}
 }
 
+func roundTileEdges(ptr unsafe.Pointer, columns, rows, tileW, tileH, radius int) {
+    data := unsafe.Slice((*uint32)(ptr), columns * tileW * rows * tileH)
+    stride := columns * tileW
+
+    radius = min(min(radius, tileW / 2), tileH / 2)
+    for y := 0; y < radius; y++ {
+        for x := 0; x < radius; x++ {
+            distSq := (radius - x) * (radius - x) + (radius - y) * (radius - y)
+            value := ((radius+1)*(radius+1) - distSq) * 16
+            mask := (uint32(min(max(value, 0), 255)) << 24) | uint32(0xffffff)
+            data[x+stride*y] &= mask
+            data[(tileW-x-1)+stride*y] &= mask
+            data[x+stride*(tileH-y-1)] &= mask
+            data[(tileW-x-1)+stride*(tileH-y-1)] &= mask
+        }
+    }
+    for r := 0; r < rows * tileH; r += tileH {
+        for c := 0; c < columns * tileW; c += tileW {
+            if r == 0 && c == 0 {
+                continue
+            }
+            for y := 0; y < tileH; y++ {
+                for x := 0; x < tileW; x++ {
+                    idx := c+x + stride*(r+y)
+                    data[idx] = (data[x + stride*y] & 0xff000000) | (data[idx] & 0xffffff)
+                }
+            }
+        }
+    }
+}
+
 func setAlphaToBrightness(ptr unsafe.Pointer, w, h int32) {
     data := unsafe.Slice((*uint32)(ptr), w * h)
     for y := int32(0); y < h; y++ {

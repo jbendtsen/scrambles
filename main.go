@@ -17,6 +17,7 @@ type Textures struct {
 	letterGlyphs []rl.GlyphInfo
 	numberGlyphs []rl.GlyphInfo
 	fontData []byte
+	tileDisplaySize int
 }
 
 var boardTileColorsRgba = [...]uint32 {
@@ -68,7 +69,51 @@ func drawBoard(game *Game, boardTex rl.Texture2D, tBoardFall float32) {
 }
 
 func drawGame(game *Game, textures *Textures) {
-	
+    tileW := float32(textures.tileDisplaySize)
+    rect := rl.Rectangle{0, 0, tileW, tileW}
+    pos := rl.Vector2{0, 0}
+
+    tileSize := int(game.tileSize)
+    boardLen := tileSize * 15
+    xBoardOff := (int(game.wndWidth) - boardLen) / 2
+    yBoardOff := (int(game.wndHeight) - boardLen - 2 * tileSize) / 2
+    tileOff := (tileSize - textures.tileDisplaySize) / 2
+
+    for i := 0; i < 15 * 15; i++ {
+        tileIndex := int(game.boardTiles[i]) - 1
+        if tileIndex < 0 {
+            continue
+        }
+        x := i % 15
+        y := i / 15
+        pos.X = float32(xBoardOff + tileOff + (x * tileSize))
+        pos.Y = float32(yBoardOff + tileOff + (y * tileSize))
+        rect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
+        rect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
+        rl.DrawTextureRec(textures.tiles, rect, pos, rl.White)
+    }
+
+    leftoverH := int32(int(game.wndHeight) - yBoardOff - boardLen)
+    deckW := int32(textures.tileDisplaySize * 11)
+    deckH := int32(textures.tileDisplaySize * 2)
+    deckX := (game.wndWidth - deckW) / 2
+    deckY := int32(yBoardOff + boardLen) + (leftoverH - deckH) / 2
+    rl.DrawRectangle(deckX, deckY, deckW, deckH, color.RGBA{0, 64, 16, 255})
+
+    dstRect := rect
+    dstRect.Width *= 1.4
+    dstRect.Height *= 1.4
+
+    origin := rl.Vector2{}
+
+    for i := 0; i < 7; i++ {
+        tileIndex := int(deckString[i]) - 0x41
+        rect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
+        rect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
+        dstRect.X = float32(int(deckX) + 20 + i * int(dstRect.Width + 6))
+        dstRect.Y = float32(int(deckY) + 20)
+        rl.DrawTexturePro(textures.tiles, rect, dstRect, origin, 0.0, rl.White)
+    }
 }
 
 func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int32) (tileSize int32) {
@@ -170,7 +215,9 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
     }
 
     tileDisplaySize := min(tileSize - 1, int32(float64(tileSize) * 0.95))
-    tilesImage := rl.GenImageColor(int(9 * tileDisplaySize), int(3 * tileDisplaySize), color.RGBA{255, 224, 160, 255})
+    tilesImage := rl.GenImageColor(int(9 * tileDisplaySize), int(3 * tileDisplaySize), rl.White)
+
+    textures.tileDisplaySize = int(tileDisplaySize)
 
     scores := getLetterScores()
     srcRect := rl.Rectangle{}
@@ -209,17 +256,8 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
         }
     }
 
-    {
-        blankNumber := &textures.numberGlyphs[2].Image
-        corner := 2 * tileDisplaySize / 3
-        dstRect.X = float32((8 * tileDisplaySize) + corner + (tileDisplaySize / 3 - blankNumber.Width) / 2)
-        dstRect.Y = float32((2 * tileDisplaySize) + corner + (tileDisplaySize / 3 - blankNumber.Height) / 2)
-        dstRect.Width  = float32(blankNumber.Width)
-        dstRect.Height = float32(blankNumber.Height)
-        srcRect.Width  = dstRect.Width
-        srcRect.Height = dstRect.Height
-        rl.ImageDraw(tilesImage, blankNumber, srcRect, dstRect, rl.Black)
-    }
+    tdsInt := int(tileDisplaySize)
+    roundTileEdges(tilesImage.Data, 9, 3, tdsInt, tdsInt, int(float64(tdsInt) * 0.15))
 
     if textures.tiles.ID > 0 {
         rl.UnloadTexture(textures.tiles)
@@ -288,6 +326,7 @@ func loadWords() []string {
 func main() {
 	game := Game{}
 	game.startupTimestamp = time.Now().UnixMilli()
+	game.boardTiles = make([]int8, 15 * 15)
 
 	game.wordsList = loadWords()
 	if game.wordsList == nil {
@@ -329,11 +368,11 @@ func main() {
 		rl.BeginDrawing()
 		rl.ClearBackground(color.RGBA{0, 0x68, 0x30, 0xff})
 
-        /*
         if rl.IsMouseButtonPressed(0) {
-            gameStarted = true
+            game.start()
+            setupDemo(&game)
+            //gameStarted = true
         }
-        */
 
 	    tBoardFall := float32(1.0)
 	    if openingTimer < maxOpeningTime {
@@ -349,7 +388,6 @@ func main() {
 	    }
 
 	    openingTimer += 1
-        rl.DrawTexture(textures.tiles, 0, 0, rl.White)
 
 		rl.EndDrawing()
 		game.frameCounter += 1

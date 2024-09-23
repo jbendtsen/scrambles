@@ -8,8 +8,10 @@ type MainMenu struct {
 type Game struct {
 	menu MainMenu
 	bagMap []int32
+	bagChars []byte
 	wordsList []string
 	wordMap map[string]int
+	boardTiles []int8
 	startupTimestamp int64
 	frameCounter int64
 	prevHash64 uint64
@@ -18,7 +20,7 @@ type Game struct {
 	tileSize int32
 }
 
-type Letter struct {
+type Tile struct {
 	letter int32
 	points int32
 	count int32
@@ -40,7 +42,7 @@ var boardTileTypeLookup = [...]int32 {
     0, 0, 3, 0, 0, 0, 3, 0,
 }
 
-var letters = [...]Letter {
+var tiles = [...]Tile {
 	{'A', 1, 9},
 	{'B', 3, 2},
 	{'C', 3, 2},
@@ -70,17 +72,6 @@ var letters = [...]Letter {
 	{' ', 0, 2},
 }
 
-func (game Game) getRandom(endExclusive int64) int64 {
-	upper, lower := generateNext128(game.startupTimestamp, game.frameCounter, game.prevHash64)
-	game.prevHash64 = upper ^ lower
-
-	value := int64(lower & ^(uint64(1) << 63))
-	if endExclusive > 0 {
-		value = value % endExclusive
-	}
-	return value
-}
-
 func getTileType(x, y int32) int32 {
     if x < 0 || y < 0 || x >= 15 || y >= 15 {
         return NORMAL
@@ -105,18 +96,26 @@ func getTileType(x, y int32) int32 {
     return boardTileTypeLookup[x + 8 * y]
 }
 
+func getLetterScores() (scores []int32) {
+    scores = make([]int32, 27)
+    for i := 0; i < 27; i++ {
+        scores[i] = tiles[i].points
+    }
+    return scores
+}
+
 func generateTileBag() ([]byte, []int32) {
 	var chars []byte
 	idx := 0
-	for i := 0; i < len(letters); i++ {
-		n := int(letters[i].count)
+	for i := 0; i < len(tiles); i++ {
+		n := int(tiles[i].count)
 		if idx + n > cap(chars) {
 			chars = append(make([]byte, 0, max(idx + n, cap(chars))), chars...)
 		}
 		chars = chars[:idx+n]
 
 		for j := 0; j < n; j++ {
-			chars[idx+j] = byte(letters[i].letter & 0xff)
+			chars[idx+j] = byte(tiles[i].letter & 0xff)
 		}
 		idx += n
 	}
@@ -129,9 +128,9 @@ func generateTileBag() ([]byte, []int32) {
 	return chars, bag
 }
 
-func takeTileFromBag(game *Game, chars []byte) Letter {
+func (game *Game) takeTileFromBag() Tile {
 	if len(game.bagMap) == 0 {
-		return Letter{}
+		return Tile{}
 	}
 
 	idx := int(game.getRandom(int64(len(game.bagMap))))
@@ -140,17 +139,32 @@ func takeTileFromBag(game *Game, chars []byte) Letter {
 	//game.bagMap[len(game.bagMap)-1] = selected
 
 	game.bagMap = game.bagMap[:len(game.bagMap)-1]
-	ch := chars[selected]
+	ch := game.bagChars[selected]
 	if ch == ' ' {
-		return letters[26]
+		return tiles[26]
 	}
-	return letters[ch - 0x41]
+	return tiles[ch - 0x41]
 }
 
-func getLetterScores() (scores []int32) {
-    scores = make([]int32, 27)
-    for i := 0; i < 27; i++ {
-        scores[i] = letters[i].points
+func (game *Game) getBoardTile(index int) Tile {
+    if index < 0 || index >= 15 * 15 || game.boardTiles[index] == 0 {
+        return Tile{}
     }
-    return scores
+    return tiles[game.boardTiles[index] - 1]
+}
+
+func (game *Game) start() {
+    game.bagChars, game.bagMap = generateTileBag()
+    game.boardTiles = make([]int8, 15 * 15)
+}
+
+func (game *Game) getRandom(endExclusive int64) int64 {
+	upper, lower := generateNext128(game.startupTimestamp, game.frameCounter, game.prevHash64)
+	game.prevHash64 = upper ^ lower
+
+	value := int64(lower & ^(uint64(1) << 63))
+	if endExclusive > 0 {
+		value = value % endExclusive
+	}
+	return value
 }
