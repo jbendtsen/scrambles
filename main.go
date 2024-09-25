@@ -35,8 +35,17 @@ func updateColor(color *color.RGBA, rgba uint32) {
 	color.A = uint8(rgba & 0xff)
 }
 
-func drawMenu(game *Game, isActive bool) {
-	
+func drawMenu(game *Game, isActive bool) (shouldStartGame bool) {
+	if !isActive {
+		return false
+	}
+
+	shouldStartGame = false
+	if rl.IsMouseButtonPressed(0) {
+		shouldStartGame = true
+	}
+
+	return shouldStartGame
 }
 
 func drawBoard(game *Game, boardTex rl.Texture2D, tBoardFall float32) {
@@ -68,10 +77,10 @@ func drawBoard(game *Game, boardTex rl.Texture2D, tBoardFall float32) {
 	rl.DrawTexturePro(boardTex, srcRect, dstRect, origin, boardRotation, boardTint)
 }
 
-func drawGame(game *Game, textures *Textures) {
+func drawGame(game *Game, textures *Textures) (isGameOver bool) {
     tileW := float32(textures.tileDisplaySize)
     rect := rl.Rectangle{0, 0, tileW, tileW}
-    pos := rl.Vector2{0, 0}
+    pos := rl.Vector2{}
 
     tileSize := int(game.tileSize)
     boardLen := tileSize * 15
@@ -93,27 +102,37 @@ func drawGame(game *Game, textures *Textures) {
         rl.DrawTextureRec(textures.tiles, rect, pos, rl.White)
     }
 
+	dstRect := rect
+    dstRect.Width *= 1.4
+    dstRect.Height *= 1.4
+
+	deckPadding := rect.Width * 0.4
+	tilesSpan := int32(7.0 * dstRect.Width + 6.0 * deckPadding)
+	deckSidePad := int32(float64(tilesSpan) * 0.05)
+
     leftoverH := int32(int(game.wndHeight) - yBoardOff - boardLen)
-    deckW := int32(textures.tileDisplaySize * 11)
-    deckH := int32(textures.tileDisplaySize * 2)
+	deckW := 2 * deckSidePad + tilesSpan
+	deckH := int32(dstRect.Height + deckPadding)
     deckX := (game.wndWidth - deckW) / 2
     deckY := int32(yBoardOff + boardLen) + (leftoverH - deckH) / 2
     rl.DrawRectangle(deckX, deckY, deckW, deckH, color.RGBA{0, 64, 16, 255})
 
-    dstRect := rect
-    dstRect.Width *= 1.4
-    dstRect.Height *= 1.4
-
     origin := rl.Vector2{}
 
     for i := 0; i < 7; i++ {
-        tileIndex := int(deckString[i]) - 0x41
+        tileIndex := int(game.players[game.curPlayer].deckTiles[i]) - 1
+		if tileIndex < 0 {
+			continue
+		}
         rect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
         rect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
-        dstRect.X = float32(int(deckX) + 20 + i * int(dstRect.Width + 6))
-        dstRect.Y = float32(int(deckY) + 20)
+        dstRect.X = float32(deckX + tilesSpan) + float32(i) * (dstRect.Width + deckPadding)
+        dstRect.Y = float32(deckY) - deckPadding
         rl.DrawTexturePro(textures.tiles, rect, dstRect, origin, 0.0, rl.White)
     }
+
+	isGameOver = rl.IsMouseButtonPressed(0)
+	return isGameOver
 }
 
 func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int32) (tileSize int32) {
@@ -324,19 +343,13 @@ func loadWords() []string {
 }
 
 func main() {
-	game := Game{}
-	game.startupTimestamp = time.Now().UnixMilli()
-	game.boardTiles = make([]int8, 15 * 15)
-
-	game.wordsList = loadWords()
-	if game.wordsList == nil {
+	wordsList := loadWords()
+	if wordsList == nil {
 		return
 	}
 
-	game.wordMap = make(map[string]int)
-	for i := 0; i < len(game.wordsList); i++ {
-		game.wordMap[game.wordsList[i]] = i
-	}
+	game := Game{}
+	game.init(wordsList, time.Now().UnixMilli())
 
 	ttfData := loadTtfData()
 	if ttfData == nil {
@@ -352,7 +365,8 @@ func main() {
 	textures := Textures{}
 	textures.fontData = ttfData
 
-    //gameStarted := false
+    gameStarted := false
+	isGameOver := false
 	openingTimer := 0
 	const maxOpeningTime = 180
 
@@ -368,26 +382,35 @@ func main() {
 		rl.BeginDrawing()
 		rl.ClearBackground(color.RGBA{0, 0x68, 0x30, 0xff})
 
-        if rl.IsMouseButtonPressed(0) {
-            game.start()
-            setupDemo(&game)
-            //gameStarted = true
-        }
-
 	    tBoardFall := float32(1.0)
-	    if openingTimer < maxOpeningTime {
-		    drawMenu(&game, openingTimer == 0)
-		    tBoardFall = float32(openingTimer) / float32(maxOpeningTime)
+	    if !gameStarted || openingTimer < maxOpeningTime {
+		    if drawMenu(&game, openingTimer == 0) {
+				game.start()
+				isGameOver = false
+				gameStarted = true
+			}
+			tBoardFall = float32(openingTimer) / float32(maxOpeningTime)
 	    }
 
-	    drawBoard(&game, textures.board, tBoardFall)
+		if gameStarted {
+			drawBoard(&game, textures.board, tBoardFall)
 
-	    if openingTimer >= maxOpeningTime {
-		    drawGame(&game, &textures)
-		    openingTimer = maxOpeningTime
-	    }
+			if !isGameOver {
+				openingTimer += 1
+			}
+			if openingTimer >= maxOpeningTime {
+				isGameOver = drawGame(&game, &textures)
+				openingTimer = maxOpeningTime
+			}
+		}
 
-	    openingTimer += 1
+		if isGameOver {
+			openingTimer -= 2
+			if openingTimer < 0 {
+				openingTimer = 0
+				gameStarted = false
+			}
+		}
 
 		rl.EndDrawing()
 		game.frameCounter += 1

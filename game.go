@@ -5,8 +5,13 @@ type MainMenu struct {
 	timeLimit int
 }
 
+type Player struct {
+	deckTiles []int8
+}
+
 type Game struct {
 	menu MainMenu
+	players [4]Player
 	bagMap []int32
 	bagChars []byte
 	wordsList []string
@@ -18,6 +23,7 @@ type Game struct {
 	wndWidth int32
 	wndHeight int32
 	tileSize int32
+	curPlayer int
 }
 
 type Tile struct {
@@ -153,9 +159,29 @@ func (game *Game) getBoardTile(index int) Tile {
     return tiles[game.boardTiles[index] - 1]
 }
 
+func (game *Game) init(wordsList []string, timestamp int64) {
+	game.wordsList = wordsList
+	game.startupTimestamp = timestamp
+	game.boardTiles = make([]int8, 15 * 15)
+
+	game.wordMap = make(map[string]int)
+	for i := 0; i < len(game.wordsList); i++ {
+		game.wordMap[game.wordsList[i]] = i
+	}
+
+	for i := 0; i < 4; i++ {
+		game.players[i].deckTiles = make([]int8, 7)
+	}
+}
+
 func (game *Game) start() {
     game.bagChars, game.bagMap = generateTileBag()
-    game.boardTiles = make([]int8, 15 * 15)
+	for i := 0; i < 15 * 15; i++ {
+		game.boardTiles[i] = 0
+	}
+	for i := 0; i < 4 * 7; i++ {
+		game.players[i / 7].deckTiles[i % 7] = 0
+	}
 }
 
 func (game *Game) getRandom(endExclusive int64) int64 {
