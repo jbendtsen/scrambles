@@ -11,6 +11,8 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
+const fps = 60
+
 type Textures struct {
 	board rl.Texture2D
 	tiles rl.Texture2D
@@ -35,13 +37,22 @@ func updateColor(color *color.RGBA, rgba uint32) {
 	color.A = uint8(rgba & 0xff)
 }
 
-func drawMenu(game *Game, isActive bool) (shouldStartGame bool) {
-	if !isActive {
+func secsToFrames(seconds int) int {
+    return seconds * fps
+}
+
+func drawMenu(game *Game, inputs *Inputs, isMenuActive bool) (shouldStartGame bool) {
+    // menu drawing goes here
+
+	if !isMenuActive {
 		return false
 	}
 
+    game.menu.nPlayers = 2
+    game.menu.timeLimitSecs = 120
+
 	shouldStartGame = false
-	if rl.IsMouseButtonPressed(0) {
+	if (inputs.buttons[0] & 1) == 1 {
 		shouldStartGame = true
 	}
 
@@ -77,7 +88,16 @@ func drawBoard(game *Game, boardTex rl.Texture2D, tBoardFall float32) {
 	rl.DrawTexturePro(boardTex, srcRect, dstRect, origin, boardRotation, boardTint)
 }
 
-func drawGame(game *Game, textures *Textures) (isGameOver bool) {
+func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) {
+    if game.modeAnimPos < game.modeAnimLen {
+        game.modeAnimPos += 1
+        if game.modeAnimPos >= game.modeAnimLen {
+            game.modeAnimPos = 0
+            game.modeAnimLen = 0
+            game.prevMode = game.curMode
+        }
+    }
+
     tileW := float32(textures.tileDisplaySize)
     rect := rl.Rectangle{0, 0, tileW, tileW}
     pos := rl.Vector2{}
@@ -102,13 +122,31 @@ func drawGame(game *Game, textures *Textures) (isGameOver bool) {
         rl.DrawTextureRec(textures.tiles, rect, pos, rl.White)
     }
 
-	dstRect := rect
+    mode := game.curMode & ^3
+    if mode == PLAYER_TURN {
+        if game.modeAnimLen > 0 {
+            t := float32(game.modeAnimPos) / float32(game.modeAnimLen)
+            drawTurn(game, textures, game.prevMode & 3, 1.0 - t, rect)
+            drawTurn(game, textures, game.curMode  & 3, t, rect)
+        }
+    }
+
+	isGameOver = (inputs.buttons[0] & 1) == 1
+	return isGameOver
+}
+
+func drawTurn(game *Game, textures *Textures, playerIdx int32, t float32, tileRect rl.Rectangle) {
+    dstRect := tileRect
     dstRect.Width *= 1.4
     dstRect.Height *= 1.4
 
-	deckPadding := rect.Width * 0.4
+	deckPadding := tileRect.Width * 0.4
 	tilesSpan := int32(7.0 * dstRect.Width + 6.0 * deckPadding)
 	deckSidePad := int32(float64(tilesSpan) * 0.05)
+
+    boardLen := int(game.tileSize) * 15
+    //xBoardOff := (int(game.wndWidth) - boardLen) / 2
+    yBoardOff := (int(game.wndHeight) - boardLen - 2 * int(game.tileSize)) / 2
 
     leftoverH := int32(int(game.wndHeight) - yBoardOff - boardLen)
 	deckW := 2 * deckSidePad + tilesSpan
@@ -120,19 +158,16 @@ func drawGame(game *Game, textures *Textures) (isGameOver bool) {
     origin := rl.Vector2{}
 
     for i := 0; i < 7; i++ {
-        tileIndex := int(game.players[game.curPlayer].deckTiles[i]) - 1
+        tileIndex := int(game.players[playerIdx].deckTiles[i]) - 1
 		if tileIndex < 0 {
 			continue
 		}
-        rect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
-        rect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
+        tileRect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
+        tileRect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
         dstRect.X = float32(deckX + tilesSpan) + float32(i) * (dstRect.Width + deckPadding)
         dstRect.Y = float32(deckY) - deckPadding
-        rl.DrawTexturePro(textures.tiles, rect, dstRect, origin, 0.0, rl.White)
+        rl.DrawTexturePro(textures.tiles, tileRect, dstRect, origin, 0.0, rl.White)
     }
-
-	isGameOver = rl.IsMouseButtonPressed(0)
-	return isGameOver
 }
 
 func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int32) (tileSize int32) {
@@ -288,6 +323,41 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
     return tileSize
 }
 
+func updateInputs(inputs *Inputs) {
+    inputs.pressedKeys = inputs.pressedKeys[0:0]
+    inputs.pressedChars = inputs.pressedChars[0:0]
+    for true {
+        key := rl.GetKeyPressed()
+        if key == 0 {
+            break
+        }
+        inputs.pressedKeys = append(inputs.pressedKeys, key)
+    }
+    for true {
+        char := rl.GetCharPressed()
+        if char == 0 {
+            break
+        }
+        inputs.pressedChars = append(inputs.pressedChars, char)
+    }
+
+    inputs.cursorX = rl.GetMouseX()
+    inputs.cursorY = rl.GetMouseY()
+    for i := 0; i < 2; i++ {
+        flags := int32(0)
+        if rl.IsMouseButtonPressed(0) {
+            flags |= 1
+        }
+        if rl.IsMouseButtonDown(0) {
+            flags |= 2
+        }
+        if rl.IsMouseButtonReleased(0) {
+            flags |= 4
+        }
+        inputs.buttons[i] = flags
+    }
+}
+
 func loadTtfData() []byte {
 	entries, err := os.ReadDir("assets/")
 	if err != nil {
@@ -360,10 +430,12 @@ func main() {
 	rl.InitWindow(800, 450, "scrambles")
 	defer rl.CloseWindow()
 
-	rl.SetTargetFPS(60)
+	rl.SetTargetFPS(fps)
 
 	textures := Textures{}
 	textures.fontData = ttfData
+
+    inputs := makeInputs()
 
     gameStarted := false
 	isGameOver := false
@@ -379,12 +451,14 @@ func main() {
 			game.tileSize = updateTextures(&textures, w, h, game.tileSize)
 		}
 
+        updateInputs(&inputs)
+
 		rl.BeginDrawing()
 		rl.ClearBackground(color.RGBA{0, 0x68, 0x30, 0xff})
 
 	    tBoardFall := float32(1.0)
 	    if !gameStarted || openingTimer < maxOpeningTime {
-		    if drawMenu(&game, openingTimer == 0) {
+		    if drawMenu(&game, &inputs, openingTimer == 0) {
 				game.start()
 				isGameOver = false
 				gameStarted = true
@@ -399,14 +473,14 @@ func main() {
 				openingTimer += 1
 			}
 			if openingTimer >= maxOpeningTime {
-				isGameOver = drawGame(&game, &textures)
+				isGameOver = drawGame(&game, &textures, &inputs)
 				openingTimer = maxOpeningTime
 			}
 		}
 
 		if isGameOver {
 			openingTimer -= 2
-			if openingTimer < 0 {
+			if openingTimer <= 0 {
 				openingTimer = 0
 				gameStarted = false
 			}

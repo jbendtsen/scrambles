@@ -2,28 +2,43 @@ package main
 
 type MainMenu struct {
 	nPlayers int
-	timeLimit int
+	timeLimitSecs int
 }
 
 type Player struct {
 	deckTiles []int8
 }
 
+type Inputs struct {
+    pressedKeys []int32
+    pressedChars []int32
+    buttons []int32
+    cursorX int32
+    cursorY int32
+}
+
 type Game struct {
 	menu MainMenu
 	players [4]Player
+
 	bagMap []int32
 	bagChars []byte
 	wordsList []string
 	wordMap map[string]int
 	boardTiles []int8
+
 	startupTimestamp int64
-	frameCounter int64
 	prevHash64 uint64
+	frameCounter int64
+
+    prevMode int32
+    curMode int32
+    modeAnimPos int32
+    modeAnimLen int32
+
 	wndWidth int32
 	wndHeight int32
 	tileSize int32
-	curPlayer int
 }
 
 type Tile struct {
@@ -37,6 +52,9 @@ const DOUBLE_WORD = 1
 const TRIPLE_WORD = 2
 const DOUBLE_LETTER = 3
 const TRIPLE_LETTER = 4
+
+const PICK_ORDER = 4
+const PLAYER_TURN = 8
 
 var boardTileTypeLookup = [...]int32 {
     2, 0, 0, 3, 0, 0, 0, 2,
@@ -193,4 +211,12 @@ func (game *Game) getRandom(endExclusive int64) int64 {
 		value = value % endExclusive
 	}
 	return value
+}
+
+func makeInputs() Inputs {
+    inputs := Inputs{}
+    inputs.pressedKeys  = make([]int32, 0, 16)
+    inputs.pressedChars = make([]int32, 0, 16)
+    inputs.buttons = make([]int32, 2)
+    return inputs
 }
