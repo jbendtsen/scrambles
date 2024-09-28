@@ -213,6 +213,10 @@ func (game *Game) getRandom(endExclusive int64) int64 {
 	return value
 }
 
+func (game *Game) simulate(inputs *Inputs) {
+    // TODO
+}
+
 func makeInputs() Inputs {
     inputs := Inputs{}
     inputs.pressedKeys  = make([]int32, 0, 16)

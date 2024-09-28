@@ -89,6 +89,8 @@ func drawBoard(game *Game, boardTex rl.Texture2D, tBoardFall float32) {
 }
 
 func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) {
+    game.simulate(inputs)
+
     if game.modeAnimPos < game.modeAnimLen {
         game.modeAnimPos += 1
         if game.modeAnimPos >= game.modeAnimLen {
