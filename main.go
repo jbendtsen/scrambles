@@ -13,6 +13,12 @@ import (
 
 const fps = 60
 
+const KEY_BACKSPACE = rl.KeyBackspace
+const KEY_UP = rl.KeyUp
+const KEY_DOWN = rl.KeyDown
+const KEY_LEFT = rl.KeyLeft
+const KEY_RIGHT = rl.KeyRight
+
 type Textures struct {
 	board rl.Texture2D
 	tiles rl.Texture2D
@@ -91,15 +97,6 @@ func drawBoard(game *Game, boardTex rl.Texture2D, tBoardFall float32) {
 func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) {
     game.simulate(inputs)
 
-    if game.modeAnimPos < game.modeAnimLen {
-        game.modeAnimPos += 1
-        if game.modeAnimPos >= game.modeAnimLen {
-            game.modeAnimPos = 0
-            game.modeAnimLen = 0
-            game.prevMode = game.curMode
-        }
-    }
-
     tileW := float32(textures.tileDisplaySize)
     rect := rl.Rectangle{0, 0, tileW, tileW}
     pos := rl.Vector2{}
@@ -124,23 +121,40 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         rl.DrawTextureRec(textures.tiles, rect, pos, rl.White)
     }
 
-    mode := game.curMode & ^3
-    if mode == PLAYER_TURN {
-        if game.modeAnimLen > 0 {
-            t := float32(game.modeAnimPos) / float32(game.modeAnimLen)
-            drawTurn(game, textures, game.prevMode & 3, 1.0 - t, rect)
-            drawTurn(game, textures, game.curMode  & 3, t, rect)
+    mode := game.state.cur & ^3
+    player := game.state.cur & 3
+    if mode == PICK_ORDER {
+        // TODO
+    } else if mode == PLAYER_TURN {
+        t := float32(1.0)
+        if game.state.animLen > 0 {
+            t = float32(game.state.animPos) / float32(game.state.animLen)
+            prev := game.state.prev & ^3
+            if prev >= PLAYER_TURN {
+                drawDeck(game, textures, game.state.prev & 3, 1.0 + t, rect)
+            }
         }
+        drawDeck(game, textures, player, t, rect)
+        drawTurn(game, textures, inputs, player, rect)
+    } else if mode == TURN_SCORING {
+        drawDeck(game, textures, player, 1.0, rect)
+        t := float32(1.0)
+        if game.state.animLen > 0 {
+            t = float32(game.state.animPos) / float32(game.state.animLen)
+        }
+        drawScoring(game, textures, player, t, rect)
     }
 
 	isGameOver = (inputs.buttons[0] & 1) == 1
 	return isGameOver
 }
 
-func drawTurn(game *Game, textures *Textures, playerIdx int32, t float32, tileRect rl.Rectangle) {
+func drawDeck(game *Game, textures *Textures, playerIdx int32, tOpening float32, tileRect rl.Rectangle) {
     dstRect := tileRect
     dstRect.Width *= 1.4
     dstRect.Height *= 1.4
+
+    it2 := (1.0 - tOpening) * (1.0 - tOpening)
 
 	deckPadding := tileRect.Width * 0.4
 	tilesSpan := int32(7.0 * dstRect.Width + 6.0 * deckPadding)
@@ -153,8 +167,8 @@ func drawTurn(game *Game, textures *Textures, playerIdx int32, t float32, tileRe
     leftoverH := int32(int(game.wndHeight) - yBoardOff - boardLen)
 	deckW := 2 * deckSidePad + tilesSpan
 	deckH := int32(dstRect.Height + deckPadding)
-    deckX := (game.wndWidth - deckW) / 2
-    deckY := int32(yBoardOff + boardLen) + (leftoverH - deckH) / 2
+    deckX := int32((1.0 - it2) * float32(game.wndWidth)) - ((game.wndWidth + deckW) / 2)
+    deckY := int32(yBoardOff + boardLen) + (leftoverH / 2) - (deckH / 2)
     rl.DrawRectangle(deckX, deckY, deckW, deckH, color.RGBA{0, 64, 16, 255})
 
     origin := rl.Vector2{}
@@ -166,10 +180,44 @@ func drawTurn(game *Game, textures *Textures, playerIdx int32, t float32, tileRe
 		}
         tileRect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
         tileRect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
-        dstRect.X = float32(deckX + tilesSpan) + float32(i) * (dstRect.Width + deckPadding)
+        dstRect.X = float32(deckX + deckSidePad) + float32(i) * (dstRect.Width + deckPadding)
         dstRect.Y = float32(deckY) - deckPadding
         rl.DrawTexturePro(textures.tiles, tileRect, dstRect, origin, 0.0, rl.White)
     }
+}
+
+func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, tileRect rl.Rectangle) {
+    origin := rl.Vector2{}
+
+    tTurnRot := float64(0.0)
+    if game.turnRotation.animLen > 0 {
+        tTurnRot = float64(game.turnRotation.animPos) / float64(game.turnRotation.animLen)
+    }
+    if game.turnRotation.prev == 0 {
+        tTurnRot = 1.0 - tTurnRot
+    }
+
+    dstRect := tileRect
+    xDir := float32(math.Abs(math.Cos(0.5 * math.Pi * tTurnRot)))
+    yDir := float32(math.Abs(math.Sin(0.5 * math.Pi * tTurnRot)))
+
+    holdPos := int32(0)
+    for i := int32(0); i < game.players[playerIdx].nTilesHeld; i++ {
+        tileIndex := int(game.players[playerIdx].turnTiles[i]) - 1
+		if tileIndex < 0 {
+			break
+		}
+		tileRect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
+        tileRect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
+        dstRect.X = float32(inputs.cursorX) + xDir * float32(holdPos * game.tileSize)
+        dstRect.Y = float32(inputs.cursorY) + yDir * float32(holdPos * game.tileSize)
+        rl.DrawTexturePro(textures.tiles, tileRect, dstRect, origin, 0.0, rl.White)
+        holdPos += 1
+    }
+}
+
+func drawScoring(game *Game, textures *Textures, playerIdx int32, tOpening float32, tileRect rl.Rectangle) {
+    // TODO
 }
 
 func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int32) (tileSize int32) {
@@ -442,7 +490,7 @@ func main() {
     gameStarted := false
 	isGameOver := false
 	openingTimer := 0
-	const maxOpeningTime = 180
+	const maxOpeningTime = 120
 
 	for !rl.WindowShouldClose() {
 	    w := int32(rl.GetRenderWidth())

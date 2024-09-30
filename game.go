@@ -1,12 +1,16 @@
 package main
 
+//import "fmt"
+
 type MainMenu struct {
 	nPlayers int
 	timeLimitSecs int
 }
 
 type Player struct {
-	deckTiles []int8
+	deckTiles [7]int8
+	turnTiles [7]int8
+	nTilesHeld int32
 }
 
 type Inputs struct {
@@ -17,9 +21,18 @@ type Inputs struct {
     cursorY int32
 }
 
+type Animation struct {
+    prev int32
+    cur int32
+    animPos int32
+    animLen int32
+}
+
 type Game struct {
 	menu MainMenu
 	players [4]Player
+	state Animation
+	turnRotation Animation
 
 	bagMap []int32
 	bagChars []byte
@@ -30,11 +43,7 @@ type Game struct {
 	startupTimestamp int64
 	prevHash64 uint64
 	frameCounter int64
-
-    prevMode int32
-    curMode int32
-    modeAnimPos int32
-    modeAnimLen int32
+	callsToRng int32
 
 	wndWidth int32
 	wndHeight int32
@@ -55,6 +64,7 @@ const TRIPLE_LETTER = 4
 
 const PICK_ORDER = 4
 const PLAYER_TURN = 8
+const TURN_SCORING = 12
 
 var boardTileTypeLookup = [...]int32 {
     2, 0, 0, 3, 0, 0, 0, 2,
@@ -152,22 +162,21 @@ func generateTileBag() ([]byte, []int32) {
 	return chars, bag
 }
 
-func (game *Game) takeTileFromBag() Tile {
+func (game *Game) takeTileFromBag() int8 {
 	if len(game.bagMap) == 0 {
-		return Tile{}
+		return 0
 	}
 
 	idx := int(game.getRandom(int64(len(game.bagMap))))
 	selected := game.bagMap[idx]
 	game.bagMap[idx] = game.bagMap[len(game.bagMap)-1]
-	//game.bagMap[len(game.bagMap)-1] = selected
-
 	game.bagMap = game.bagMap[:len(game.bagMap)-1]
+
 	ch := game.bagChars[selected]
 	if ch == ' ' {
-		return tiles[26]
+		return 27
 	}
-	return tiles[ch - 0x41]
+	return int8(ch) - 0x40
 }
 
 func (game *Game) getBoardTile(index int) Tile {
@@ -186,25 +195,12 @@ func (game *Game) init(wordsList []string, timestamp int64) {
 	for i := 0; i < len(game.wordsList); i++ {
 		game.wordMap[game.wordsList[i]] = i
 	}
-
-	for i := 0; i < 4; i++ {
-		game.players[i].deckTiles = make([]int8, 7)
-	}
-}
-
-func (game *Game) start() {
-    game.bagChars, game.bagMap = generateTileBag()
-	for i := 0; i < 15 * 15; i++ {
-		game.boardTiles[i] = 0
-	}
-	for i := 0; i < 4 * 7; i++ {
-		game.players[i / 7].deckTiles[i % 7] = 0
-	}
 }
 
 func (game *Game) getRandom(endExclusive int64) int64 {
-	upper, lower := generateNext128(game.startupTimestamp, game.frameCounter, game.prevHash64)
-	game.prevHash64 = upper ^ lower
+	upper, lower := generateNext128(game.startupTimestamp, (game.frameCounter << 8) | int64(game.callsToRng & 0xff), game.prevHash64)
+	game.callsToRng += 1
+	game.prevHash64 = upper
 
 	value := int64(lower & ^(uint64(1) << 63))
 	if endExclusive > 0 {
@@ -213,8 +209,107 @@ func (game *Game) getRandom(endExclusive int64) int64 {
 	return value
 }
 
+func (game *Game) start() {
+    game.bagChars, game.bagMap = generateTileBag()
+	for i := 0; i < 15 * 15; i++ {
+		game.boardTiles[i] = 0
+	}
+	for i := 0; i < 4; i++ {
+	    for j := 0; j < 7; j++ {
+		    game.players[i].deckTiles[j] = 0
+		    game.players[i].turnTiles[j] = 0
+	    }
+	    game.players[i].nTilesHeld = 0
+	}
+
+    game.state.prev = 0
+    game.state.cur = PLAYER_TURN
+    game.state.animPos = 0
+    game.state.animLen = 80
+
+    if false {
+        for i := 0; i < game.menu.nPlayers * 7; i++ {
+            game.players[i / 7].deckTiles[i % 7] = game.takeTileFromBag()
+        }
+    } else {
+        for i := 0; i < 7; i++ {
+            game.players[0].deckTiles[i] = game.takeTileFromBag()
+        }
+    }
+}
+
 func (game *Game) simulate(inputs *Inputs) {
-    // TODO
+    player := game.state.cur & 3
+    mode := game.state.cur & ^3
+    if mode == PLAYER_TURN {
+        game.simulatePlayerTurn(inputs, player)
+    }
+
+    game.state.step()
+}
+
+func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
+    for _, char := range inputs.pressedChars {
+        idx := int8(0)
+        if char >= 'a' && char <= 'z' {
+            idx = int8(char - 0x60)
+        } else if char >= 'A' && char <= 'Z' {
+            idx = int8(char - 0x40)
+        } else if char == ' ' {
+            idx = 27
+        }
+        if idx <= 0 {
+            continue
+        }
+        for j := 0; j < 7; j++ {
+            if game.players[playerIdx].deckTiles[j] == idx {
+                game.players[playerIdx].deckTiles[j] = 0
+                game.players[playerIdx].turnTiles[game.players[playerIdx].nTilesHeld] = idx
+                game.players[playerIdx].nTilesHeld++
+                break
+            }
+        }
+    }
+
+    for _, code := range inputs.pressedKeys {
+        if code == KEY_BACKSPACE {
+            if game.players[playerIdx].nTilesHeld <= 0 {
+                game.players[playerIdx].nTilesHeld = 0
+                continue
+            }
+            for j := 0; j < 7; j++ {
+                if (game.players[playerIdx].deckTiles[j] == 0) {
+                    game.players[playerIdx].nTilesHeld--
+                    game.players[playerIdx].deckTiles[j] = game.players[playerIdx].turnTiles[game.players[playerIdx].nTilesHeld]
+                    break
+                }
+            }
+        } else if code == KEY_UP || code == KEY_DOWN || code == KEY_LEFT || code == KEY_RIGHT {
+            cur := int32(0)
+            if code == KEY_LEFT || code == KEY_RIGHT {
+                cur = 1
+            }
+            if cur != game.turnRotation.cur {
+                game.turnRotation.cur = cur
+                game.turnRotation.prev = cur ^ 1
+                game.turnRotation.animPos = 0
+                game.turnRotation.animLen = 30
+            }
+        }
+    }
+
+    game.turnRotation.step()
+}
+
+func (a *Animation) step() {
+    if a.animPos < a.animLen {
+        a.animPos += 1
+        if a.animPos >= a.animLen {
+            a.animPos = 0
+            a.animLen = 0
+            a.prev = a.cur
+        }
+    }
 }
 
 func makeInputs() Inputs {
