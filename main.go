@@ -209,8 +209,8 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
 		}
 		tileRect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
         tileRect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
-        dstRect.X = float32(inputs.cursorX) + xDir * float32(holdPos * game.tileSize)
-        dstRect.Y = float32(inputs.cursorY) + yDir * float32(holdPos * game.tileSize)
+        dstRect.X = float32(inputs.cursorX - game.tileSize / 2) + xDir * float32(holdPos * game.tileSize)
+        dstRect.Y = float32(inputs.cursorY - game.tileSize / 2) + yDir * float32(holdPos * game.tileSize)
         rl.DrawTexturePro(textures.tiles, tileRect, dstRect, origin, 0.0, rl.White)
         holdPos += 1
     }

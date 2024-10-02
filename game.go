@@ -304,11 +304,11 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
 func (a *Animation) step() {
     if a.animPos < a.animLen {
         a.animPos += 1
-        if a.animPos >= a.animLen {
-            a.animPos = 0
-            a.animLen = 0
-            a.prev = a.cur
-        }
+    }
+    if a.animPos >= a.animLen {
+        a.animPos = 0
+        a.animLen = 0
+        a.prev = a.cur
     }
 }
 
