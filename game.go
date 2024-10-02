@@ -16,9 +16,12 @@ type Player struct {
 type Inputs struct {
     pressedKeys []int32
     pressedChars []int32
-    buttons []int32
+    mouseButtons [2]int32
+    arrowTimers [4]uint32
     cursorX int32
     cursorY int32
+    cursorVelX float32
+    cursorVelY float32
 }
 
 type Animation struct {
@@ -32,7 +35,10 @@ type Game struct {
 	menu MainMenu
 	players [4]Player
 	state Animation
-	turnRotation Animation
+	turnState Animation
+
+    turnCursorX float32
+    turnCursorY float32
 
 	bagMap []int32
 	bagChars []byte
@@ -64,7 +70,10 @@ const TRIPLE_LETTER = 4
 
 const PICK_ORDER = 4
 const PLAYER_TURN = 8
-const TURN_SCORING = 12
+const SCORING_TURN = 12
+
+const TURN_MOVE = 0
+const TURN_ROTA = 2
 
 var boardTileTypeLookup = [...]int32 {
     2, 0, 0, 3, 0, 0, 0, 2,
@@ -285,20 +294,38 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
                 }
             }
         } else if code == KEY_UP || code == KEY_DOWN || code == KEY_LEFT || code == KEY_RIGHT {
-            cur := int32(0)
-            if code == KEY_LEFT || code == KEY_RIGHT {
-                cur = 1
-            }
-            if cur != game.turnRotation.cur {
-                game.turnRotation.cur = cur
-                game.turnRotation.prev = cur ^ 1
-                game.turnRotation.animPos = 0
-                game.turnRotation.animLen = 30
+            if game.turnState.cur >= TURN_ROTA {
+                cur := int32(0)
+                if code == KEY_LEFT || code == KEY_RIGHT {
+                    cur = 1
+                }
+                if cur != game.turnState.cur {
+                    game.turnState.cur = cur
+                    game.turnState.prev = cur ^ 1
+                    game.turnState.animLen = 30
+                    if (game.turnState.animPos > 0) {
+                        game.turnState.animPos = 30 - game.turnState.animPos
+                    } else {
+                        game.turnState.animPos = 0
+                    }
+                }
             }
         }
     }
 
-    game.turnRotation.step()
+    if game.turnState.cur < TURN_ROTA {
+        game.turnCursorX += inputs.cursorVelX
+        game.turnCursorY += inputs.cursorVelY
+
+        const tttv = uint32(10)
+        f := float32(game.wndWidth) / float32(200 * tttv)
+        game.turnCursorY -= f * float32(min(inputs.arrowTimers[ARROW_UP], tttv))
+        game.turnCursorY += f * float32(min(inputs.arrowTimers[ARROW_DOWN], tttv))
+        game.turnCursorX -= f * float32(min(inputs.arrowTimers[ARROW_LEFT], tttv))
+        game.turnCursorX += f * float32(min(inputs.arrowTimers[ARROW_RIGHT], tttv))
+    }
+
+    game.turnState.step()
 }
 
 func (a *Animation) step() {
@@ -316,6 +343,5 @@ func makeInputs() Inputs {
     inputs := Inputs{}
     inputs.pressedKeys  = make([]int32, 0, 16)
     inputs.pressedChars = make([]int32, 0, 16)
-    inputs.buttons = make([]int32, 2)
     return inputs
 }

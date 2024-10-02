@@ -19,6 +19,11 @@ const KEY_DOWN = rl.KeyDown
 const KEY_LEFT = rl.KeyLeft
 const KEY_RIGHT = rl.KeyRight
 
+const ARROW_UP = 0
+const ARROW_DOWN = 1
+const ARROW_LEFT = 2
+const ARROW_RIGHT = 3
+
 type Textures struct {
 	board rl.Texture2D
 	tiles rl.Texture2D
@@ -58,7 +63,7 @@ func drawMenu(game *Game, inputs *Inputs, isMenuActive bool) (shouldStartGame bo
     game.menu.timeLimitSecs = 120
 
 	shouldStartGame = false
-	if (inputs.buttons[0] & 1) == 1 {
+	if (inputs.mouseButtons[0] & 1) == 1 {
 		shouldStartGame = true
 	}
 
@@ -136,7 +141,7 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         }
         drawDeck(game, textures, player, t, rect)
         drawTurn(game, textures, inputs, player, rect)
-    } else if mode == TURN_SCORING {
+    } else if mode == SCORING_TURN {
         drawDeck(game, textures, player, 1.0, rect)
         t := float32(1.0)
         if game.state.animLen > 0 {
@@ -145,7 +150,7 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         drawScoring(game, textures, player, t, rect)
     }
 
-	isGameOver = (inputs.buttons[0] & 1) == 1
+	isGameOver = (inputs.mouseButtons[0] & 1) == 1
 	return isGameOver
 }
 
@@ -190,10 +195,10 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
     origin := rl.Vector2{}
 
     tTurnRot := float64(0.0)
-    if game.turnRotation.animLen > 0 {
-        tTurnRot = float64(game.turnRotation.animPos) / float64(game.turnRotation.animLen)
+    if game.turnState.prev >= TURN_ROTA && game.turnState.animLen > 0 {
+        tTurnRot = float64(game.turnState.animPos) / float64(game.turnState.animLen)
     }
-    if game.turnRotation.prev == 0 {
+    if (game.turnState.prev & 1) == 0 {
         tTurnRot = 1.0 - tTurnRot
     }
 
@@ -209,8 +214,8 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
 		}
 		tileRect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
         tileRect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
-        dstRect.X = float32(inputs.cursorX - game.tileSize / 2) + xDir * float32(holdPos * game.tileSize)
-        dstRect.Y = float32(inputs.cursorY - game.tileSize / 2) + yDir * float32(holdPos * game.tileSize)
+        dstRect.X = game.turnCursorX - float32(game.tileSize / 2) + xDir * float32(holdPos * game.tileSize)
+        dstRect.Y = game.turnCursorY - float32(game.tileSize / 2) + yDir * float32(holdPos * game.tileSize)
         rl.DrawTexturePro(textures.tiles, tileRect, dstRect, origin, 0.0, rl.White)
         holdPos += 1
     }
@@ -376,6 +381,7 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
 func updateInputs(inputs *Inputs) {
     inputs.pressedKeys = inputs.pressedKeys[0:0]
     inputs.pressedChars = inputs.pressedChars[0:0]
+
     for true {
         key := rl.GetKeyPressed()
         if key == 0 {
@@ -393,7 +399,12 @@ func updateInputs(inputs *Inputs) {
 
     inputs.cursorX = rl.GetMouseX()
     inputs.cursorY = rl.GetMouseY()
-    for i := 0; i < 2; i++ {
+
+    vel := rl.GetMouseDelta()
+    inputs.cursorVelX = vel.X
+    inputs.cursorVelY = vel.Y
+
+    for i := 0; i < len(inputs.mouseButtons); i++ {
         flags := int32(0)
         if rl.IsMouseButtonPressed(0) {
             flags |= 1
@@ -404,7 +415,28 @@ func updateInputs(inputs *Inputs) {
         if rl.IsMouseButtonReleased(0) {
             flags |= 4
         }
-        inputs.buttons[i] = flags
+        inputs.mouseButtons[i] = flags
+    }
+
+    if rl.IsKeyDown(KEY_UP) {
+        inputs.arrowTimers[ARROW_UP]++
+    } else {
+        inputs.arrowTimers[ARROW_UP] = 0
+    }
+    if rl.IsKeyDown(KEY_DOWN) {
+        inputs.arrowTimers[ARROW_DOWN]++
+    } else {
+        inputs.arrowTimers[ARROW_DOWN] = 0
+    }
+    if rl.IsKeyDown(KEY_LEFT) {
+        inputs.arrowTimers[ARROW_LEFT]++
+    } else {
+        inputs.arrowTimers[ARROW_LEFT] = 0
+    }
+    if rl.IsKeyDown(KEY_RIGHT) {
+        inputs.arrowTimers[ARROW_RIGHT]++
+    } else {
+        inputs.arrowTimers[ARROW_RIGHT] = 0
     }
 }
 
@@ -480,6 +512,7 @@ func main() {
 	rl.InitWindow(800, 450, "scrambles")
 	defer rl.CloseWindow()
 
+    rl.SetExitKey(0)
 	rl.SetTargetFPS(fps)
 
 	textures := Textures{}
