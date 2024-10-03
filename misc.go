@@ -1,5 +1,6 @@
 package main
 
+import "math"
 import "unsafe"
 
 type Triangle struct {
@@ -64,9 +65,10 @@ func roundTileEdges(ptr unsafe.Pointer, columns, rows, tileW, tileH, radius int)
     }
 }
 
-func highlightTile(ptr unsafe.Pointer, w, h, innerW, innerH int32, rgba uint32) {
+func makeTileHighlight(ptr unsafe.Pointer, w, h, innerW, innerH int32, rgba uint32) {
     data := unsafe.Slice((*uint32)(ptr), w * h)
     color := (rgba >> 24) | ((rgba >> 8) & 0xff00) | ((rgba << 8) & 0xff0000) // no alpha
+
     xStart := (w - innerW) / 2
     yStart := (h - innerH) / 2
     xEnd := w - xStart
@@ -83,6 +85,42 @@ func highlightTile(ptr unsafe.Pointer, w, h, innerW, innerH int32, rgba uint32) 
     }
 }
 
+func makeTileCursor(ptr unsafe.Pointer, w, h int32, rgba uint32) {
+    data := unsafe.Slice((*uint32)(ptr), w * h)
+    color := (rgba >> 24) | ((rgba >> 8) & 0xff00) | ((rgba << 8) & 0xff0000) | (rgba << 24)
+
+    borderWidth := w / 8
+    innerRadiusF := float32(w) * 0.2
+    innerRadius := int32(innerRadiusF)
+    irsq := innerRadiusF * innerRadiusF
+    midX := float32(w) * 0.5
+    midY := float32(h) * 0.5
+
+    for y := int32(0); y < h; y++ {
+        for x := int32(0); x < w; x++ {
+            alpha := 0.0
+            distSq := (float32(x) - midX) * (float32(x) - midX) + (float32(y) - midY) * (float32(y) - midY)
+            if distSq <= irsq {
+                alpha = 1.0
+            } else {
+                xx := min(x, w - x)
+                yy := min(y, h - y)
+                if xx < innerRadius && yy < innerRadius {
+                    dx := float32(xx - innerRadius)
+                    dy := float32(yy - innerRadius)
+                    borderDist := float32(math.Sqrt(float64(dx * dx + dy * dy)))
+                    if borderDist >= innerRadiusF - float32(borderWidth) && borderDist <= innerRadiusF {
+                        alpha = 1.0
+                    }
+                } else if xx <= borderWidth || yy <= borderWidth {
+                    alpha = 1.0
+                }
+            }
+            data[x + w * y] = (uint32(float64(color >> 24) * alpha) << 24) | (color & 0xffffff)
+        }
+    }
+}
+
 func setAlphaToBrightness(ptr unsafe.Pointer, w, h int32) {
     data := unsafe.Slice((*uint32)(ptr), w * h)
     for y := int32(0); y < h; y++ {
@@ -94,6 +132,7 @@ func setAlphaToBrightness(ptr unsafe.Pointer, w, h int32) {
     }
 }
 
+// murmur128
 func generateNext128(startupTimestamp int64, frameCounter int64, prevHash64 uint64) (uint64, uint64) {
 	const c1 = uint64(0x87c37b91114253d5)
 	const c2 = uint64(0x4cf5ad432745937f)

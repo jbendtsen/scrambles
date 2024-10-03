@@ -320,10 +320,9 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
         }
     }
 
-    //game.turnCursorX += inputs.cursorVelX
-    //game.turnCursorY += inputs.cursorVelY
+    if inputs.arrowTimers[ARROW_UP] != 0 || inputs.arrowTimers[ARROW_DOWN] != 0 ||
+        inputs.arrowTimers[ARROW_LEFT] != 0 || inputs.arrowTimers[ARROW_RIGHT] != 0 {
 
-    if inputs.arrowTimers[ARROW_UP] != 0 || inputs.arrowTimers[ARROW_DOWN] != 0 || inputs.arrowTimers[ARROW_LEFT] != 0 || inputs.arrowTimers[ARROW_RIGHT] != 0 {
         game.cursorDuringMoveX = inputs.cursorX
         game.cursorDuringMoveY = inputs.cursorY
 

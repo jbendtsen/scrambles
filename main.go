@@ -33,8 +33,11 @@ type Textures struct {
 	tilesSmall rl.Texture2D
 	tilesLarge rl.Texture2D
 	tileHl rl.Texture2D
-	letterGlyphs []rl.GlyphInfo
-	numberGlyphs []rl.GlyphInfo
+	tileCursor rl.Texture2D
+	letterGlyphsSmall []rl.GlyphInfo
+	letterGlyphsLarge []rl.GlyphInfo
+	numberGlyphsSmall []rl.GlyphInfo
+	numberGlyphsLarge []rl.GlyphInfo
 	fontData []byte
 	smallTileSize int
 	largeTileSize int
@@ -124,12 +127,18 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
     tileOff := (tileSize - textures.smallTileSize) / 2
 
     if mode == PLAYER_TURN {
-        col := (int(game.turnCursorX) - xBoardOff) / tileSize
-        row := (int(game.turnCursorY) - yBoardOff) / tileSize
-        if col >= 0 && col < 15 && row >= 0 && row < 15 {
+        boardCurX := int(game.turnCursorX) - xBoardOff
+        boardCurY := int(game.turnCursorY) - yBoardOff
+        col := boardCurX / tileSize
+        row := boardCurY / tileSize
+        if boardCurX >= 0 && boardCurY >= 0 && col >= 0 && col < 15 && row >= 0 && row < 15 {
             xHl := int32(xBoardOff + (col * tileSize) - textures.tileHlBorderSize)
             yHl := int32(yBoardOff + (row * tileSize) - textures.tileHlBorderSize)
             rl.DrawTexture(textures.tileHl, xHl, yHl, rl.White)
+        }
+
+        if game.players[player].nTilesHeld == 0 {
+            rl.DrawTexture(textures.tileCursor, int32(game.turnCursorX - tileW * 0.5), int32(game.turnCursorY - tileW * 0.5), rl.White)
         }
     }
 
@@ -155,13 +164,13 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
             t = float32(game.state.animPos) / float32(game.state.animLen)
             prev := game.state.prev & ^3
             if prev >= PLAYER_TURN {
-                drawDeck(game, textures, game.state.prev & 3, 1.0 + t, rect)
+                drawDeck(game, textures, game.state.prev & 3, 1.0 + t)
             }
         }
-        drawDeck(game, textures, player, t, rect)
+        drawDeck(game, textures, player, t)
         drawTurn(game, textures, inputs, player, rect)
     } else if mode == SCORING_TURN {
-        drawDeck(game, textures, player, 1.0, rect)
+        drawDeck(game, textures, player, 1.0)
         t := float32(1.0)
         if game.state.animLen > 0 {
             t = float32(game.state.animPos) / float32(game.state.animLen)
@@ -173,14 +182,13 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
 	return isGameOver
 }
 
-func drawDeck(game *Game, textures *Textures, playerIdx int32, tOpening float32, tileRect rl.Rectangle) {
+func drawDeck(game *Game, textures *Textures, playerIdx int32, tOpening float32) {
+    tileRect := rl.Rectangle{0, 0, float32(textures.largeTileSize), float32(textures.largeTileSize)}
     dstRect := tileRect
-    dstRect.Width *= 1.4
-    dstRect.Height *= 1.4
 
     it2 := (1.0 - tOpening) * (1.0 - tOpening)
 
-	deckPadding := tileRect.Width * 0.4
+	deckPadding := tileRect.Width * 0.25
 	tilesSpan := int32(7.0 * dstRect.Width + 6.0 * deckPadding)
 	deckSidePad := int32(float64(tilesSpan) * 0.05)
 
@@ -202,11 +210,11 @@ func drawDeck(game *Game, textures *Textures, playerIdx int32, tOpening float32,
 		if tileIndex < 0 {
 			continue
 		}
-        tileRect.X = float32((tileIndex % 9) * textures.smallTileSize)
-        tileRect.Y = float32((tileIndex / 9) * textures.smallTileSize)
+        tileRect.X = float32((tileIndex % 9) * textures.largeTileSize)
+        tileRect.Y = float32((tileIndex / 9) * textures.largeTileSize)
         dstRect.X = float32(deckX + deckSidePad) + float32(i) * (dstRect.Width + deckPadding)
-        dstRect.Y = float32(deckY) - deckPadding
-        rl.DrawTexturePro(textures.tilesSmall, tileRect, dstRect, origin, 0.0, rl.White)
+        dstRect.Y = float32(deckY)
+        rl.DrawTexturePro(textures.tilesLarge, tileRect, dstRect, origin, 0.0, rl.White)
     }
 }
 
@@ -302,11 +310,17 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
 		return tileSize
 	}
 
-    if textures.letterGlyphs != nil {
-        rl.UnloadFontData(textures.letterGlyphs)
+    if textures.letterGlyphsSmall != nil {
+        rl.UnloadFontData(textures.letterGlyphsSmall)
     }
-    if textures.numberGlyphs != nil {
-        rl.UnloadFontData(textures.numberGlyphs)
+    if textures.letterGlyphsLarge != nil {
+        rl.UnloadFontData(textures.letterGlyphsLarge)
+    }
+    if textures.numberGlyphsSmall != nil {
+        rl.UnloadFontData(textures.numberGlyphsSmall)
+    }
+    if textures.numberGlyphsLarge != nil {
+        rl.UnloadFontData(textures.numberGlyphsLarge)
     }
 
 	letterCodePoints := make([]int32, 26)
@@ -318,93 +332,136 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
 		numberCodePoints[i] = int32(0x30 + i)
 	}
 
-	textures.letterGlyphs = rl.LoadFontData(
+	textures.letterGlyphsSmall = rl.LoadFontData(
 		textures.fontData,
 		int32(float64(tileSize) * 0.9),
 		letterCodePoints,
 		rl.FontDefault,
 	)
-	textures.numberGlyphs = rl.LoadFontData(
+	textures.letterGlyphsLarge = rl.LoadFontData(
+		textures.fontData,
+		int32(float64(tileSize) * 0.9 * 1.4),
+		letterCodePoints,
+		rl.FontDefault,
+	)
+	textures.numberGlyphsSmall = rl.LoadFontData(
 		textures.fontData,
 		int32(float64(tileSize) * 0.33),
 		numberCodePoints,
 		rl.FontDefault,
 	)
+	textures.numberGlyphsLarge = rl.LoadFontData(
+		textures.fontData,
+		int32(float64(tileSize) * 0.33 * 1.4),
+		numberCodePoints,
+		rl.FontDefault,
+	)
 
     for i := 0; i < 26; i++ {
-        img := &textures.letterGlyphs[i].Image
+        img := &textures.letterGlyphsSmall[i].Image
+        rl.ImageFormat(img, rl.UncompressedR8g8b8a8)
+        setAlphaToBrightness(img.Data, img.Width, img.Height)
+
+        img = &textures.letterGlyphsLarge[i].Image
         rl.ImageFormat(img, rl.UncompressedR8g8b8a8)
         setAlphaToBrightness(img.Data, img.Width, img.Height)
     }
     for i := 0; i < 10; i++ {
-        img := &textures.numberGlyphs[i].Image
+        img := &textures.numberGlyphsSmall[i].Image
+        rl.ImageFormat(img, rl.UncompressedR8g8b8a8)
+        setAlphaToBrightness(img.Data, img.Width, img.Height)
+
+        img = &textures.numberGlyphsLarge[i].Image
         rl.ImageFormat(img, rl.UncompressedR8g8b8a8)
         setAlphaToBrightness(img.Data, img.Width, img.Height)
     }
 
     smallTileSize := min(tileSize - 1, int32(float64(tileSize) * 0.95))
-    tilesImage := rl.GenImageColor(int(9 * smallTileSize), int(3 * smallTileSize), rl.White)
+    largeTileSize := int32(1.4 * float64(smallTileSize))
+    tilesImageSmall := rl.GenImageColor(int(9 * smallTileSize), int(3 * smallTileSize), rl.White)
+    tilesImageLarge := rl.GenImageColor(int(9 * largeTileSize), int(3 * largeTileSize), rl.White)
 
     textures.smallTileSize = int(smallTileSize)
+    textures.largeTileSize = int(largeTileSize)
     textures.tileHlBorderSize = int(1 + (smallTileSize / 5))
     hlSize := textures.tileHlBorderSize * 2 + textures.smallTileSize
 
     tileHlImage := rl.GenImageColor(hlSize, hlSize, rl.White)
-    highlightTile(tileHlImage.Data, int32(hlSize), int32(hlSize), smallTileSize, smallTileSize, 0xfff0a0ff)
+    makeTileHighlight(tileHlImage.Data, int32(hlSize), int32(hlSize), smallTileSize, smallTileSize, 0xfff0a0ff)
     if textures.tileHl.ID > 0 {
         rl.UnloadTexture(textures.tileHl)
     }
     textures.tileHl = rl.LoadTextureFromImage(tileHlImage)
     rl.UnloadImage(tileHlImage)
 
+    tileCursorImage := rl.GenImageColor(textures.smallTileSize, textures.smallTileSize, rl.White)
+    makeTileCursor(tileCursorImage.Data, smallTileSize, smallTileSize, 0xc060ffff)
+    if textures.tileCursor.ID > 0 {
+        rl.UnloadTexture(textures.tileCursor)
+    }
+    textures.tileCursor = rl.LoadTextureFromImage(tileCursorImage)
+    rl.UnloadImage(tileCursorImage)
+
     scores := getLetterScores()
+    for i := int32(0); i < 26; i++ {
+        renderTile(tilesImageSmall, textures.letterGlyphsSmall, textures.numberGlyphsSmall, i, int32(scores[i]), smallTileSize)
+        renderTile(tilesImageLarge, textures.letterGlyphsLarge, textures.numberGlyphsLarge, i, int32(scores[i]), largeTileSize)
+    }
+
+    tdsIntSmall := int(smallTileSize)
+    tdsIntLarge := int(largeTileSize)
+    roundTileEdges(tilesImageSmall.Data, 9, 3, tdsIntSmall, tdsIntSmall, int(float64(tdsIntSmall) * 0.15))
+    roundTileEdges(tilesImageLarge.Data, 9, 3, tdsIntLarge, tdsIntLarge, int(float64(tdsIntLarge) * 0.15))
+
+    if textures.tilesSmall.ID > 0 {
+        rl.UnloadTexture(textures.tilesSmall)
+    }
+    textures.tilesSmall = rl.LoadTextureFromImage(tilesImageSmall)
+    rl.UnloadImage(tilesImageSmall)
+
+    if textures.tilesLarge.ID > 0 {
+        rl.UnloadTexture(textures.tilesLarge)
+    }
+    textures.tilesLarge = rl.LoadTextureFromImage(tilesImageLarge)
+    rl.UnloadImage(tilesImageLarge)
+
+    return tileSize
+}
+
+func renderTile(tilesImage *rl.Image, letterGlyphs, numberGlyphs []rl.GlyphInfo, idx, points, tileSize int32) {
     srcRect := rl.Rectangle{}
     dstRect := rl.Rectangle{}
-    for i := int32(0); i < 26; i++ {
-        letter := &textures.letterGlyphs[i].Image
-        lift := -float32(letter.Height) * 0.15
-        dstRect.X = float32(((i % 9) * smallTileSize) + (smallTileSize - letter.Width) / 2)
-        dstRect.Y = lift + float32(((i / 9) * smallTileSize) + (smallTileSize - letter.Height) / 2)
-        dstRect.Width  = float32(letter.Width)
-        dstRect.Height = float32(letter.Height)
-        srcRect.Width  = dstRect.Width
-        srcRect.Height = dstRect.Height
-        rl.ImageDraw(tilesImage, letter, srcRect, dstRect, rl.Black)
+    letter := &letterGlyphs[idx].Image
+    number := &numberGlyphs[points % 10].Image
+    lift := -float32(letter.Height) * 0.15
 
-        points := scores[i]
-        number := &textures.numberGlyphs[points % 10].Image
-        corner := 2 * smallTileSize / 3
-        dstRect.X = float32(((i % 9) * smallTileSize) + corner + (smallTileSize / 3 - number.Width) / 2)
-        dstRect.Y = float32(((i / 9) * smallTileSize) + corner + (smallTileSize / 3 - number.Height) / 2)
+    dstRect.X = float32(((idx % 9) * tileSize) + (tileSize - letter.Width) / 2)
+    dstRect.Y = lift + float32(((idx / 9) * tileSize) + (tileSize - letter.Height) / 2)
+    dstRect.Width  = float32(letter.Width)
+    dstRect.Height = float32(letter.Height)
+    srcRect.Width  = dstRect.Width
+    srcRect.Height = dstRect.Height
+    rl.ImageDraw(tilesImage, letter, srcRect, dstRect, rl.Black)
+
+    corner := 2 * tileSize / 3
+    dstRect.X = float32(((idx % 9) * tileSize) + corner + (tileSize / 3 - number.Width) / 2)
+    dstRect.Y = float32(((idx / 9) * tileSize) + corner + (tileSize / 3 - number.Height) / 2)
+    dstRect.Width  = float32(number.Width)
+    dstRect.Height = float32(number.Height)
+    srcRect.Width  = dstRect.Width
+    srcRect.Height = dstRect.Height
+    rl.ImageDraw(tilesImage, number, srcRect, dstRect, rl.Black)
+
+    if points >= 10 {
+        dstRect.X -= float32(number.Height)
+
+        number = &numberGlyphs[(points / 10) % 10].Image
         dstRect.Width  = float32(number.Width)
         dstRect.Height = float32(number.Height)
         srcRect.Width  = dstRect.Width
         srcRect.Height = dstRect.Height
         rl.ImageDraw(tilesImage, number, srcRect, dstRect, rl.Black)
-
-        if points >= 10 {
-            dstRect.X -= float32(number.Height)
-
-            number = &textures.numberGlyphs[(points / 10) % 10].Image
-            dstRect.Width  = float32(number.Width)
-            dstRect.Height = float32(number.Height)
-            srcRect.Width  = dstRect.Width
-            srcRect.Height = dstRect.Height
-            rl.ImageDraw(tilesImage, number, srcRect, dstRect, rl.Black)
-        }
     }
-
-    tdsInt := int(smallTileSize)
-    roundTileEdges(tilesImage.Data, 9, 3, tdsInt, tdsInt, int(float64(tdsInt) * 0.15))
-
-    if textures.tilesSmall.ID > 0 {
-        rl.UnloadTexture(textures.tilesSmall)
-    }
-
-    textures.tilesSmall = rl.LoadTextureFromImage(tilesImage)
-    rl.UnloadImage(tilesImage)
-
-    return tileSize
 }
 
 func updateInputs(inputs *Inputs) {
