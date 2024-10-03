@@ -14,6 +14,7 @@ import (
 const fps = 60
 
 const KEY_BACKSPACE = rl.KeyBackspace
+const KEY_RETURN = rl.KeyEnter
 const KEY_LSHIFT = rl.KeyLeftShift
 const KEY_RSHIFT = rl.KeyRightShift
 const KEY_LCTRL = rl.KeyLeftControl
@@ -137,6 +138,16 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
             rl.DrawTexture(textures.tileHl, xHl, yHl, rl.White)
         }
 
+        t := float32(1.0)
+        if game.state.animLen > 0 {
+            t = float32(game.state.animPos) / float32(game.state.animLen)
+            prev := game.state.prev & ^3
+            if prev >= PLAYER_TURN {
+                drawDeck(game, textures, game.state.prev & 3, 1.0 + t)
+            }
+        }
+        drawDeck(game, textures, player, t)
+
         if game.players[player].nTilesHeld == 0 {
             rl.DrawTexture(textures.tileCursor, int32(game.turnCursorX - tileW * 0.5), int32(game.turnCursorY - tileW * 0.5), rl.White)
         }
@@ -159,15 +170,6 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
     if mode == PICK_ORDER {
         // TODO
     } else if mode == PLAYER_TURN {
-        t := float32(1.0)
-        if game.state.animLen > 0 {
-            t = float32(game.state.animPos) / float32(game.state.animLen)
-            prev := game.state.prev & ^3
-            if prev >= PLAYER_TURN {
-                drawDeck(game, textures, game.state.prev & 3, 1.0 + t)
-            }
-        }
-        drawDeck(game, textures, player, t)
         drawTurn(game, textures, inputs, player, rect)
     } else if mode == SCORING_TURN {
         drawDeck(game, textures, player, 1.0)
@@ -225,7 +227,7 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
     if game.turnState.animLen > 0 {
         tTurnRot = float64(game.turnState.animPos) / float64(game.turnState.animLen)
     }
-    if (game.turnState.prev & 1) == 0 {
+    if game.turnState.prev == ROTA_VERT {
         tTurnRot = 1.0 - tTurnRot
     }
 
@@ -234,15 +236,17 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
     yDir := float32(math.Abs(math.Sin(0.5 * math.Pi * tTurnRot)))
 
     holdPos := int32(0)
+    offset := int32(0)
     for i := int32(0); i < game.players[playerIdx].nTilesHeld; i++ {
         tileIndex := int(game.players[playerIdx].turnTiles[i]) - 1
 		if tileIndex < 0 {
 			break
 		}
+		offset = int32(game.players[playerIdx].turnOffsets[i])
 		tileRect.X = float32((tileIndex % 9) * textures.smallTileSize)
         tileRect.Y = float32((tileIndex / 9) * textures.smallTileSize)
-        dstRect.X = game.turnCursorX - float32(game.tileSize / 2) + xDir * float32(holdPos * game.tileSize)
-        dstRect.Y = game.turnCursorY - float32(game.tileSize / 2) + yDir * float32(holdPos * game.tileSize)
+        dstRect.X = game.turnCursorX - float32(game.tileSize / 2) + xDir * float32((holdPos + offset) * game.tileSize)
+        dstRect.Y = game.turnCursorY - float32(game.tileSize / 2) + yDir * float32((holdPos + offset) * game.tileSize)
         rl.DrawTexturePro(textures.tilesSmall, tileRect, dstRect, origin, 0.0, rl.White)
         holdPos += 1
     }

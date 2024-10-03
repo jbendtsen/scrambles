@@ -11,6 +11,7 @@ type MainMenu struct {
 type Player struct {
 	deckTiles [7]int8
 	turnTiles [7]int8
+	turnOffsets [7]uint8
 	nTilesHeld int32
 }
 
@@ -74,6 +75,9 @@ const TRIPLE_LETTER = 4
 const PICK_ORDER = 4
 const PLAYER_TURN = 8
 const SCORING_TURN = 12
+
+const ROTA_VERT = 0
+const ROTA_HORI = 1
 
 var boardTileTypeLookup = [...]int32 {
     2, 0, 0, 3, 0, 0, 0, 2,
@@ -281,6 +285,7 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
     }
 
     shouldRotate := false
+    shouldPlace := false
 
     for _, code := range inputs.pressedKeys {
         if code == KEY_BACKSPACE {
@@ -297,15 +302,21 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
             }
         }
         if code == KEY_LSHIFT || code == KEY_RSHIFT {
-            shouldRotate = (game.turnState.cur & 1) == 0
+            shouldRotate = game.turnState.cur == ROTA_VERT
         }
         if code == KEY_LCTRL || code == KEY_RCTRL {
-            shouldRotate = (game.turnState.cur & 1) == 1
+            shouldRotate = game.turnState.cur == ROTA_HORI
+        }
+        if code == KEY_RETURN {
+            shouldPlace = true
         }
     }
 
     if (inputs.mouseButtons[1] & 1) == 1 {
         shouldRotate = true
+    }
+    if (inputs.mouseButtons[0] & 1) == 1 {
+        shouldPlace = true
     }
 
     if shouldRotate {
@@ -341,6 +352,57 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
             game.cursorDuringMoveY = 0
             game.turnCursorX = float32(inputs.cursorX)
             game.turnCursorY = float32(inputs.cursorY)
+        }
+    }
+
+    nHeld := int(game.players[playerIdx].nTilesHeld)
+    if nHeld > 0 {
+        tileSize := int(game.tileSize)
+        boardLen := tileSize * 15
+        xBoardOff := (int(game.wndWidth) - boardLen) / 2
+        yBoardOff := (int(game.wndHeight) - boardLen - 2 * tileSize) / 2
+
+        boardCurX := int(game.turnCursorX) - xBoardOff
+        boardCurY := int(game.turnCursorY) - yBoardOff
+        col := boardCurX / tileSize
+        row := boardCurY / tileSize
+
+        if boardCurX >= 0 && boardCurY >= 0 && col >= 0 && col < 15 && row >= 0 && row < 15 {
+            xInc := 1
+            yInc := 0
+            if game.turnState.cur == ROTA_VERT {
+                xInc = 0
+                yInc = 1
+            }
+
+            offset := 0
+            x := col
+            y := row
+            for i := 0; i < nHeld; i++ {
+                x = col + xInc * (i + offset)
+                y = row + yInc * (i + offset)
+                if x >= 15 || y >= 15 {
+                    shouldPlace = false
+                } else if game.boardTiles[x + 15 * y] != 0 {
+                    offset++
+                }
+                game.players[playerIdx].turnOffsets[i] = uint8(offset)
+            }
+            if x >= 15 || y >= 15 {
+                shouldPlace = false
+            }
+
+            if shouldPlace {
+                for i := 0; i < nHeld; i++ {
+                    offset = int(game.players[playerIdx].turnOffsets[i])
+                    x = col + xInc * (i + offset)
+                    y = row + yInc * (i + offset)
+                    game.boardTiles[x + 15 * y] = game.players[playerIdx].turnTiles[i]
+                    game.players[playerIdx].turnTiles[i] = 0
+                    game.players[playerIdx].turnOffsets[i] = 0
+                }
+                game.players[playerIdx].nTilesHeld = 0
+            }
         }
     }
 
