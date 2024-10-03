@@ -14,6 +14,10 @@ import (
 const fps = 60
 
 const KEY_BACKSPACE = rl.KeyBackspace
+const KEY_LSHIFT = rl.KeyLeftShift
+const KEY_RSHIFT = rl.KeyRightShift
+const KEY_LCTRL = rl.KeyLeftControl
+const KEY_RCTRL = rl.KeyRightControl
 const KEY_UP = rl.KeyUp
 const KEY_DOWN = rl.KeyDown
 const KEY_LEFT = rl.KeyLeft
@@ -26,11 +30,15 @@ const ARROW_RIGHT = 3
 
 type Textures struct {
 	board rl.Texture2D
-	tiles rl.Texture2D
+	tilesSmall rl.Texture2D
+	tilesLarge rl.Texture2D
+	tileHl rl.Texture2D
 	letterGlyphs []rl.GlyphInfo
 	numberGlyphs []rl.GlyphInfo
 	fontData []byte
-	tileDisplaySize int
+	smallTileSize int
+	largeTileSize int
+	tileHlBorderSize int
 }
 
 var boardTileColorsRgba = [...]uint32 {
@@ -102,7 +110,10 @@ func drawBoard(game *Game, boardTex rl.Texture2D, tBoardFall float32) {
 func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) {
     game.simulate(inputs)
 
-    tileW := float32(textures.tileDisplaySize)
+    mode := game.state.cur & ^3
+    player := game.state.cur & 3
+
+    tileW := float32(textures.smallTileSize)
     rect := rl.Rectangle{0, 0, tileW, tileW}
     pos := rl.Vector2{}
 
@@ -110,7 +121,17 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
     boardLen := tileSize * 15
     xBoardOff := (int(game.wndWidth) - boardLen) / 2
     yBoardOff := (int(game.wndHeight) - boardLen - 2 * tileSize) / 2
-    tileOff := (tileSize - textures.tileDisplaySize) / 2
+    tileOff := (tileSize - textures.smallTileSize) / 2
+
+    if mode == PLAYER_TURN {
+        col := (int(game.turnCursorX) - xBoardOff) / tileSize
+        row := (int(game.turnCursorY) - yBoardOff) / tileSize
+        if col >= 0 && col < 15 && row >= 0 && row < 15 {
+            xHl := int32(xBoardOff + (col * tileSize) - textures.tileHlBorderSize)
+            yHl := int32(yBoardOff + (row * tileSize) - textures.tileHlBorderSize)
+            rl.DrawTexture(textures.tileHl, xHl, yHl, rl.White)
+        }
+    }
 
     for i := 0; i < 15 * 15; i++ {
         tileIndex := int(game.boardTiles[i]) - 1
@@ -121,13 +142,11 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         y := i / 15
         pos.X = float32(xBoardOff + tileOff + (x * tileSize))
         pos.Y = float32(yBoardOff + tileOff + (y * tileSize))
-        rect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
-        rect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
-        rl.DrawTextureRec(textures.tiles, rect, pos, rl.White)
+        rect.X = float32((tileIndex % 9) * textures.smallTileSize)
+        rect.Y = float32((tileIndex / 9) * textures.smallTileSize)
+        rl.DrawTextureRec(textures.tilesSmall, rect, pos, rl.White)
     }
 
-    mode := game.state.cur & ^3
-    player := game.state.cur & 3
     if mode == PICK_ORDER {
         // TODO
     } else if mode == PLAYER_TURN {
@@ -150,7 +169,7 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         drawScoring(game, textures, player, t, rect)
     }
 
-	isGameOver = (inputs.mouseButtons[0] & 1) == 1
+	isGameOver = false
 	return isGameOver
 }
 
@@ -183,11 +202,11 @@ func drawDeck(game *Game, textures *Textures, playerIdx int32, tOpening float32,
 		if tileIndex < 0 {
 			continue
 		}
-        tileRect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
-        tileRect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
+        tileRect.X = float32((tileIndex % 9) * textures.smallTileSize)
+        tileRect.Y = float32((tileIndex / 9) * textures.smallTileSize)
         dstRect.X = float32(deckX + deckSidePad) + float32(i) * (dstRect.Width + deckPadding)
         dstRect.Y = float32(deckY) - deckPadding
-        rl.DrawTexturePro(textures.tiles, tileRect, dstRect, origin, 0.0, rl.White)
+        rl.DrawTexturePro(textures.tilesSmall, tileRect, dstRect, origin, 0.0, rl.White)
     }
 }
 
@@ -195,7 +214,7 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
     origin := rl.Vector2{}
 
     tTurnRot := float64(0.0)
-    if game.turnState.prev >= TURN_ROTA && game.turnState.animLen > 0 {
+    if game.turnState.animLen > 0 {
         tTurnRot = float64(game.turnState.animPos) / float64(game.turnState.animLen)
     }
     if (game.turnState.prev & 1) == 0 {
@@ -212,11 +231,11 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
 		if tileIndex < 0 {
 			break
 		}
-		tileRect.X = float32((tileIndex % 9) * textures.tileDisplaySize)
-        tileRect.Y = float32((tileIndex / 9) * textures.tileDisplaySize)
+		tileRect.X = float32((tileIndex % 9) * textures.smallTileSize)
+        tileRect.Y = float32((tileIndex / 9) * textures.smallTileSize)
         dstRect.X = game.turnCursorX - float32(game.tileSize / 2) + xDir * float32(holdPos * game.tileSize)
         dstRect.Y = game.turnCursorY - float32(game.tileSize / 2) + yDir * float32(holdPos * game.tileSize)
-        rl.DrawTexturePro(textures.tiles, tileRect, dstRect, origin, 0.0, rl.White)
+        rl.DrawTexturePro(textures.tilesSmall, tileRect, dstRect, origin, 0.0, rl.White)
         holdPos += 1
     }
 }
@@ -323,10 +342,20 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
         setAlphaToBrightness(img.Data, img.Width, img.Height)
     }
 
-    tileDisplaySize := min(tileSize - 1, int32(float64(tileSize) * 0.95))
-    tilesImage := rl.GenImageColor(int(9 * tileDisplaySize), int(3 * tileDisplaySize), rl.White)
+    smallTileSize := min(tileSize - 1, int32(float64(tileSize) * 0.95))
+    tilesImage := rl.GenImageColor(int(9 * smallTileSize), int(3 * smallTileSize), rl.White)
 
-    textures.tileDisplaySize = int(tileDisplaySize)
+    textures.smallTileSize = int(smallTileSize)
+    textures.tileHlBorderSize = int(1 + (smallTileSize / 5))
+    hlSize := textures.tileHlBorderSize * 2 + textures.smallTileSize
+
+    tileHlImage := rl.GenImageColor(hlSize, hlSize, rl.White)
+    highlightTile(tileHlImage.Data, int32(hlSize), int32(hlSize), smallTileSize, smallTileSize, 0xfff0a0ff)
+    if textures.tileHl.ID > 0 {
+        rl.UnloadTexture(textures.tileHl)
+    }
+    textures.tileHl = rl.LoadTextureFromImage(tileHlImage)
+    rl.UnloadImage(tileHlImage)
 
     scores := getLetterScores()
     srcRect := rl.Rectangle{}
@@ -334,8 +363,8 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
     for i := int32(0); i < 26; i++ {
         letter := &textures.letterGlyphs[i].Image
         lift := -float32(letter.Height) * 0.15
-        dstRect.X = float32(((i % 9) * tileDisplaySize) + (tileDisplaySize - letter.Width) / 2)
-        dstRect.Y = lift + float32(((i / 9) * tileDisplaySize) + (tileDisplaySize - letter.Height) / 2)
+        dstRect.X = float32(((i % 9) * smallTileSize) + (smallTileSize - letter.Width) / 2)
+        dstRect.Y = lift + float32(((i / 9) * smallTileSize) + (smallTileSize - letter.Height) / 2)
         dstRect.Width  = float32(letter.Width)
         dstRect.Height = float32(letter.Height)
         srcRect.Width  = dstRect.Width
@@ -344,9 +373,9 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
 
         points := scores[i]
         number := &textures.numberGlyphs[points % 10].Image
-        corner := 2 * tileDisplaySize / 3
-        dstRect.X = float32(((i % 9) * tileDisplaySize) + corner + (tileDisplaySize / 3 - number.Width) / 2)
-        dstRect.Y = float32(((i / 9) * tileDisplaySize) + corner + (tileDisplaySize / 3 - number.Height) / 2)
+        corner := 2 * smallTileSize / 3
+        dstRect.X = float32(((i % 9) * smallTileSize) + corner + (smallTileSize / 3 - number.Width) / 2)
+        dstRect.Y = float32(((i / 9) * smallTileSize) + corner + (smallTileSize / 3 - number.Height) / 2)
         dstRect.Width  = float32(number.Width)
         dstRect.Height = float32(number.Height)
         srcRect.Width  = dstRect.Width
@@ -365,14 +394,14 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
         }
     }
 
-    tdsInt := int(tileDisplaySize)
+    tdsInt := int(smallTileSize)
     roundTileEdges(tilesImage.Data, 9, 3, tdsInt, tdsInt, int(float64(tdsInt) * 0.15))
 
-    if textures.tiles.ID > 0 {
-        rl.UnloadTexture(textures.tiles)
+    if textures.tilesSmall.ID > 0 {
+        rl.UnloadTexture(textures.tilesSmall)
     }
 
-    textures.tiles = rl.LoadTextureFromImage(tilesImage)
+    textures.tilesSmall = rl.LoadTextureFromImage(tilesImage)
     rl.UnloadImage(tilesImage)
 
     return tileSize
@@ -406,13 +435,16 @@ func updateInputs(inputs *Inputs) {
 
     for i := 0; i < len(inputs.mouseButtons); i++ {
         flags := int32(0)
-        if rl.IsMouseButtonPressed(0) {
+        // pointless. wrapping a single int in a structure just so that int can be taken out again and passed down in isolation.
+        // raylib just takes the int directly, but the Go binding just has to be "clever" and make people do work that it will undo anyway.
+        button := rl.MouseButton(i)
+        if rl.IsMouseButtonPressed(button) {
             flags |= 1
         }
-        if rl.IsMouseButtonDown(0) {
+        if rl.IsMouseButtonDown(button) {
             flags |= 2
         }
-        if rl.IsMouseButtonReleased(0) {
+        if rl.IsMouseButtonReleased(button) {
             flags |= 4
         }
         inputs.mouseButtons[i] = flags

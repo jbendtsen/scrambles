@@ -1,0 +1,2 @@
+- button to shuffle tiles in deck
+- move tiles and rotate tiles ui

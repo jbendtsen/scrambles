@@ -64,6 +64,25 @@ func roundTileEdges(ptr unsafe.Pointer, columns, rows, tileW, tileH, radius int)
     }
 }
 
+func highlightTile(ptr unsafe.Pointer, w, h, innerW, innerH int32, rgba uint32) {
+    data := unsafe.Slice((*uint32)(ptr), w * h)
+    color := (rgba >> 24) | ((rgba >> 8) & 0xff00) | ((rgba << 8) & 0xff0000) // no alpha
+    xStart := (w - innerW) / 2
+    yStart := (h - innerH) / 2
+    xEnd := w - xStart
+    yEnd := h - yStart
+
+    for y := int32(0); y < h; y++ {
+        for x := int32(0); x < w; x++ {
+            alpha := uint32(0xa0)
+            if x < xStart || x >= xEnd || y < yStart || y >= yEnd {
+                alpha = uint32(min((255 / xStart) * (1 + min(min(x, w - x), min(y, h - y))), 255))
+            }
+            data[x + w * y] = (alpha << 24) | color
+        }
+    }
+}
+
 func setAlphaToBrightness(ptr unsafe.Pointer, w, h int32) {
     data := unsafe.Slice((*uint32)(ptr), w * h)
     for y := int32(0); y < h; y++ {
