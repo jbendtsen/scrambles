@@ -3,6 +3,13 @@ package main
 //import "fmt"
 import "math"
 
+type Animation struct {
+    prev uint64
+    cur uint64
+    animPos int32
+    animLen int32
+}
+
 type MainMenu struct {
 	nPlayers int
 	timeLimitSecs int
@@ -11,8 +18,8 @@ type MainMenu struct {
 type Player struct {
 	deckTiles [7]int8
 	turnTiles [7]int8
-	turnOffsets [7]uint8
 	nTilesHeld int32
+	turnOffsetBits Animation
 }
 
 type Inputs struct {
@@ -24,13 +31,6 @@ type Inputs struct {
     cursorY int32
     cursorVelX float32
     cursorVelY float32
-}
-
-type Animation struct {
-    prev int32
-    cur int32
-    animPos int32
-    animLen int32
 }
 
 type Game struct {
@@ -252,8 +252,8 @@ func (game *Game) start() {
 }
 
 func (game *Game) simulate(inputs *Inputs) {
-    player := game.state.cur & 3
-    mode := game.state.cur & ^3
+    player := int32(game.state.cur) & 3
+    mode := int32(game.state.cur) & ^3
     if mode == PLAYER_TURN {
         game.simulatePlayerTurn(inputs, player)
     }
@@ -329,6 +329,11 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
         } else {
             game.turnState.animPos = 0
         }
+
+        game.players[playerIdx].turnOffsetBits.prev = game.players[playerIdx].turnOffsetBits.cur
+        game.players[playerIdx].turnOffsetBits.cur = 0
+        game.players[playerIdx].turnOffsetBits.animPos = game.turnState.animPos
+        game.players[playerIdx].turnOffsetBits.animLen = game.turnState.animLen
     }
 
     if inputs.arrowTimers[ARROW_UP] != 0 || inputs.arrowTimers[ARROW_DOWN] != 0 ||
@@ -375,38 +380,44 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
                 yInc = 1
             }
 
+            offsetBits := uint64(0)
             offset := 0
             x := col
             y := row
             for i := 0; i < nHeld; i++ {
+                offsetBits <<= 1
                 x = col + xInc * (i + offset)
                 y = row + yInc * (i + offset)
                 if x >= 15 || y >= 15 {
                     shouldPlace = false
                 } else if game.boardTiles[x + 15 * y] != 0 {
+                    offsetBits |= 1
                     offset++
                 }
-                game.players[playerIdx].turnOffsets[i] = uint8(offset)
             }
             if x >= 15 || y >= 15 {
                 shouldPlace = false
             }
 
             if shouldPlace {
+                offset = 0
                 for i := 0; i < nHeld; i++ {
-                    offset = int(game.players[playerIdx].turnOffsets[i])
+                    offset += int((offsetBits >> (nHeld-i-1)) & 1)
                     x = col + xInc * (i + offset)
                     y = row + yInc * (i + offset)
                     game.boardTiles[x + 15 * y] = game.players[playerIdx].turnTiles[i]
                     game.players[playerIdx].turnTiles[i] = 0
-                    game.players[playerIdx].turnOffsets[i] = 0
                 }
                 game.players[playerIdx].nTilesHeld = 0
+                game.players[playerIdx].turnOffsetBits.cur = 0
+            } else {
+                game.players[playerIdx].turnOffsetBits.cur = offsetBits
             }
         }
     }
 
     game.turnState.step()
+    game.players[playerIdx].turnOffsetBits.step()
 }
 
 func (a *Animation) step() {

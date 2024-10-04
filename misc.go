@@ -103,8 +103,8 @@ func makeTileCursor(ptr unsafe.Pointer, w, h int32, rgba uint32) {
             if distSq <= irsq {
                 alpha = 1.0
             } else {
-                xx := min(x, w - x)
-                yy := min(y, h - y)
+                xx := min(x, w - x - 1)
+                yy := min(y, h - y - 1)
                 if xx < innerRadius && yy < innerRadius {
                     dx := float32(xx - innerRadius)
                     dy := float32(yy - innerRadius)
