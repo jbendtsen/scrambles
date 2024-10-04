@@ -143,10 +143,10 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
             t = float32(game.state.animPos) / float32(game.state.animLen)
             prev := int32(game.state.prev) & ^3
             if prev >= PLAYER_TURN {
-                drawDeck(game, textures, int32(game.state.prev) & 3, 1.0 + t)
+                drawDeck(game, textures, int32(game.state.prev) & 3, -(1.0 + t), DECK_OPENING)
             }
         }
-        drawDeck(game, textures, player, t)
+        drawDeck(game, textures, player, t, DECK_OPENING)
     }
 
     for i := 0; i < 15 * 15; i++ {
@@ -171,23 +171,30 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         }
         drawTurn(game, textures, inputs, player, rect)
     } else if mode == SCORING_TURN {
-        drawDeck(game, textures, player, 1.0)
-        t := float32(1.0)
-        if game.state.animLen > 0 {
-            t = float32(game.state.animPos) / float32(game.state.animLen)
-        }
-        drawScoring(game, textures, player, t, rect)
+        //tRefill := game.players[player].deckTilesBits.getPosition()
+        drawDeck(game, textures, player, 1.0, DECK_REFILL)
+
+        tScoring := game.state.getPositionOr(0.0)
+        drawScoring(game, textures, player, tScoring, rect)
     }
 
 	isGameOver = false
 	return isGameOver
 }
 
-func drawDeck(game *Game, textures *Textures, playerIdx int32, tOpening float32) {
+func drawDeck(game *Game, textures *Textures, playerIdx int32, t float32, animMode int32) {
     tileRect := rl.Rectangle{0, 0, float32(textures.largeTileSize), float32(textures.largeTileSize)}
     dstRect := tileRect
 
-    it2 := (1.0 - tOpening) * (1.0 - tOpening)
+    it2 := float32(0.0)
+    if animMode == DECK_OPENING {
+        if t < 0.0 {
+            it2 = (1.0 + t) * (1.0 + t)
+            it2 = -it2
+        } else {
+            it2 = (1.0 - t) * (1.0 - t)
+        }
+    }
 
 	deckPadding := tileRect.Width * 0.25
 	tilesSpan := int32(7.0 * dstRect.Width + 6.0 * deckPadding)
@@ -207,14 +214,22 @@ func drawDeck(game *Game, textures *Textures, playerIdx int32, tOpening float32)
     origin := rl.Vector2{}
 
     for i := 0; i < 7; i++ {
-        tileIndex := int(game.players[playerIdx].deckTiles[i]) - 1
+        t = 0.0
+        tileIndex := int((game.players[playerIdx].deckTilesBits.prev >> ((7-i-1)*8)) & 0x7f) - 1
 		if tileIndex < 0 {
-			continue
+		    tileIndex = int((game.players[playerIdx].deckTilesBits.cur >> ((7-i-1)*8)) & 0x7f) - 1
+		    if tileIndex < 0 {
+			    continue
+		    }
+		    if game.players[playerIdx].deckTilesBits.animLen > 0 {
+		        t = min(float32(game.players[playerIdx].deckTilesBits.animPos - int32(i*2)) / float32(game.players[playerIdx].deckTilesBits.animLen - 14), 1.0)
+		        t = (1.0 - t) * (1.0 - t)
+	        }
 		}
         tileRect.X = float32((tileIndex % 9) * textures.largeTileSize)
         tileRect.Y = float32((tileIndex / 9) * textures.largeTileSize)
         dstRect.X = float32(deckX + deckSidePad) + float32(i) * (dstRect.Width + deckPadding)
-        dstRect.Y = float32(deckY)
+        dstRect.Y = float32(deckY) + (t * dstRect.Height * 5.0)
         rl.DrawTexturePro(textures.tilesLarge, tileRect, dstRect, origin, 0.0, rl.White)
     }
 }
@@ -222,20 +237,16 @@ func drawDeck(game *Game, textures *Textures, playerIdx int32, tOpening float32)
 func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, tileRect rl.Rectangle) {
     origin := rl.Vector2{}
 
-    tTurnRot := float64(0.0)
-    if game.turnState.animLen > 0 {
-        tTurnRot = float64(game.turnState.animPos) / float64(game.turnState.animLen)
-    }
+    tTurnRot := float64(game.players[playerIdx].turnState.getPositionOr(0.0))
 
     dstRect := tileRect
     xDir := float32(math.Abs(math.Cos(0.5 * math.Pi * tTurnRot)))
     yDir := float32(math.Abs(math.Sin(0.5 * math.Pi * tTurnRot)))
 
-    if game.turnState.prev == ROTA_VERT {
+    if game.players[playerIdx].turnState.prev == ROTA_VERT {
         xDir, yDir = yDir, xDir
     }
 
-    holdPos := float32(0)
     offsetCur := float32(0)
     offsetPrev := float32(0)
     nHeld := game.players[playerIdx].nTilesHeld
@@ -245,19 +256,15 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
 		if tileIndex < 0 {
 			break
 		}
-		if ((game.players[playerIdx].turnOffsetBits.cur >> (nHeld - i - 1)) & 1) == 1 {
-		    offsetCur += 1.0
-		}
-		if ((game.players[playerIdx].turnOffsetBits.prev >> (nHeld - i - 1)) & 1) == 1 {
-		    offsetPrev += 1.0
-		}
-	    pos := holdPos + float32(tTurnRot) * offsetCur + float32(1.0 - tTurnRot) * offsetPrev
+		offsetCur  += float32((game.players[playerIdx].turnOffsetsBits.cur >> ((nHeld-i-1)*4)) & 0xf)
+		offsetPrev += float32((game.players[playerIdx].turnOffsetsBits.prev >> ((nHeld-i-1)*4)) & 0xf)
+	    pos := float32(i) + float32(tTurnRot) * offsetCur + float32(1.0 - tTurnRot) * offsetPrev
+
 		tileRect.X = float32((tileIndex % 9) * textures.smallTileSize)
         tileRect.Y = float32((tileIndex / 9) * textures.smallTileSize)
         dstRect.X = game.turnCursorX - float32(game.tileSize / 2) + xDir * pos * float32(game.tileSize)
         dstRect.Y = game.turnCursorY - float32(game.tileSize / 2) + yDir * pos * float32(game.tileSize)
         rl.DrawTexturePro(textures.tilesSmall, tileRect, dstRect, origin, 0.0, rl.White)
-        holdPos += 1.0
     }
 }
 
