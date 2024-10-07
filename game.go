@@ -16,6 +16,7 @@ type MainMenu struct {
 }
 
 type Player struct {
+    waitingToPlace bool
 	turnTiles [7]int8
 	nTilesHeld int32
 	turnState Animation
@@ -44,11 +45,14 @@ type Game struct {
     cursorDuringMoveX int32
     cursorDuringMoveY int32
 
+    shuffleTimer int32
+
 	bagMap []int32
 	bagChars []byte
 	wordsList []string
 	wordMap map[string]int
 	boardTiles []int8
+	shuffleBuf [14]int8
 
 	startupTimestamp int64
 	prevHash64 uint64
@@ -82,6 +86,8 @@ const ROTA_HORI = 1
 const DECK_OPENING = 0
 const DECK_REFILL  = 1
 const DECK_SHUFFLE = 2
+
+const SHUFFLE_DURATION = 10
 
 var boardTileTypeLookup = [...]int32 {
     2, 0, 0, 3, 0, 0, 0, 2,
@@ -196,6 +202,20 @@ func (game *Game) takeTileFromBag() int8 {
 	return int8(ch) - 0x40
 }
 
+func (game *Game) updateShuffleBuffer() {
+    for i := 0; i < 7; i++ {
+        game.shuffleBuf[7+i] = int8(i)
+    }
+    for i := 0; i < 7; i++ {
+        idx := int(game.getRandom(int64(7-i)))
+        game.shuffleBuf[i] = game.shuffleBuf[7+idx]
+        game.shuffleBuf[7+idx] = game.shuffleBuf[13-i]
+    }
+    for i := 0; i < 7; i++ {
+        game.shuffleBuf[7 + game.shuffleBuf[i]] = int8(i)
+    }
+}
+
 func (game *Game) getBoardTile(index int) Tile {
     if index < 0 || index >= 15 * 15 || game.boardTiles[index] == 0 {
         return Tile{}
@@ -267,6 +287,8 @@ func (game *Game) simulate(inputs *Inputs) {
 }
 
 func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
+    p := &game.players[playerIdx]
+
     for _, char := range inputs.pressedChars {
         idx := int8(0)
         if char >= 'a' && char <= 'z' {
@@ -279,12 +301,12 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
         if idx <= 0 {
             continue
         }
-        tiles := game.players[playerIdx].deckTilesBits.cur
+        tiles := p.deckTilesBits.cur
         for j := 0; j < 7; j++ {
             if ((tiles >> ((7-j-1)*8)) & 0x7f) == uint64(idx & 0x7f) {
-                game.players[playerIdx].deckTilesBits.cur &= ^(uint64(0xff) << ((7-j-1)*8))
-                game.players[playerIdx].turnTiles[game.players[playerIdx].nTilesHeld] = idx
-                game.players[playerIdx].nTilesHeld++
+                p.deckTilesBits.cur &= ^(uint64(0xff) << ((7-j-1)*8))
+                p.turnTiles[p.nTilesHeld] = idx
+                p.nTilesHeld++
                 break
             }
         }
@@ -292,31 +314,31 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
 
     shouldRotate := false
     shouldPlace := false
+    shouldShuffle := false
 
     for _, code := range inputs.pressedKeys {
         if code == KEY_BACKSPACE {
-            if game.players[playerIdx].nTilesHeld <= 0 {
-                game.players[playerIdx].nTilesHeld = 0
+            if p.nTilesHeld <= 0 {
+                p.nTilesHeld = 0
                 continue
             }
-            tiles := game.players[playerIdx].deckTilesBits.cur
+            tiles := p.deckTilesBits.cur
             for j := 0; j < 7; j++ {
                 if ((tiles >> ((7-j-1)*8)) & 0x7f) == 0 {
-                    game.players[playerIdx].nTilesHeld--
-                    idx := game.players[playerIdx].turnTiles[game.players[playerIdx].nTilesHeld]
-                    game.players[playerIdx].deckTilesBits.cur |= uint64(idx & 0x7f) << ((7-j-1)*8)
+                    p.nTilesHeld--
+                    idx := p.turnTiles[p.nTilesHeld]
+                    p.deckTilesBits.cur |= uint64(idx & 0x7f) << ((7-j-1)*8)
                     break
                 }
             }
-        }
-        if code == KEY_LSHIFT || code == KEY_RSHIFT {
-            shouldRotate = game.players[playerIdx].turnState.cur == ROTA_VERT
-        }
-        if code == KEY_LCTRL || code == KEY_RCTRL {
-            shouldRotate = game.players[playerIdx].turnState.cur == ROTA_HORI
-        }
-        if code == KEY_RETURN {
+        } else if code == KEY_LSHIFT || code == KEY_RSHIFT {
+            shouldRotate = p.turnState.cur == ROTA_VERT
+        } else if code == KEY_LCTRL || code == KEY_RCTRL {
+            shouldRotate = p.turnState.cur == ROTA_HORI
+        } else if code == KEY_RETURN {
             shouldPlace = true
+        } else if code == KEY_TAB {
+            shouldShuffle = game.state.animLen == 0
         }
     }
 
@@ -329,19 +351,19 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
 
     if shouldRotate {
         const rotateLen = 20
-        game.players[playerIdx].turnState.prev = game.players[playerIdx].turnState.cur
-        game.players[playerIdx].turnState.cur ^= 1
-        game.players[playerIdx].turnState.animLen = rotateLen
-        if (game.players[playerIdx].turnState.animPos > 0) {
-            game.players[playerIdx].turnState.animPos = rotateLen - game.players[playerIdx].turnState.animPos
+        p.turnState.prev = p.turnState.cur
+        p.turnState.cur ^= 1
+        p.turnState.animLen = rotateLen
+        if (p.turnState.animPos > 0) {
+            p.turnState.animPos = rotateLen - p.turnState.animPos
         } else {
-            game.players[playerIdx].turnState.animPos = 0
+            p.turnState.animPos = 0
         }
 
-        game.players[playerIdx].turnOffsetsBits.prev = game.players[playerIdx].turnOffsetsBits.cur
-        game.players[playerIdx].turnOffsetsBits.cur = 0
-        game.players[playerIdx].turnOffsetsBits.animPos = game.players[playerIdx].turnState.animPos
-        game.players[playerIdx].turnOffsetsBits.animLen = game.players[playerIdx].turnState.animLen
+        p.turnOffsetsBits.prev = p.turnOffsetsBits.cur
+        p.turnOffsetsBits.cur = 0
+        p.turnOffsetsBits.animPos = p.turnState.animPos
+        p.turnOffsetsBits.animLen = p.turnState.animLen
     }
 
     if inputs.arrowTimers[ARROW_UP] != 0 || inputs.arrowTimers[ARROW_DOWN] != 0 ||
@@ -370,7 +392,7 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
 
     didPlace := false
 
-    nHeld := int(game.players[playerIdx].nTilesHeld)
+    nHeld := int(p.nTilesHeld)
     if nHeld > 0 {
         tileSize := int(game.tileSize)
         boardLen := tileSize * 15
@@ -385,7 +407,7 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
         if boardCurX >= 0 && boardCurY >= 0 && col >= 0 && col < 15 && row >= 0 && row < 15 {
             xInc := 1
             yInc := 0
-            if game.players[playerIdx].turnState.cur == ROTA_VERT {
+            if p.turnState.cur == ROTA_VERT {
                 xInc = 0
                 yInc = 1
             }
@@ -413,14 +435,7 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
                 offsetBits |= uint64(offset & 0xf)
             }
 
-            // probably not necessary
-            x = col + xInc * (nHeld + totalOffset)
-            y = row + yInc * (nHeld + totalOffset)
-            if x >= 15 || y >= 15 {
-                shouldPlace = false
-            }
-
-            game.players[playerIdx].turnOffsetsBits.cur = offsetBits
+            p.turnOffsetsBits.cur = offsetBits
 
             didPlace = shouldPlace
             if didPlace {
@@ -429,38 +444,59 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
                     offset += int((offsetBits >> ((nHeld-i-1)*4)) & 0xf)
                     x = col + xInc * (i + offset)
                     y = row + yInc * (i + offset)
-                    game.boardTiles[x + 15 * y] = game.players[playerIdx].turnTiles[i]
-                    game.players[playerIdx].turnTiles[i] = 0
+                    game.boardTiles[x + 15 * y] = p.turnTiles[i]
+                    p.turnTiles[i] = 0
                 }
             }
         }
     }
 
-    if didPlace {
-        game.players[playerIdx].deckTilesBits.prev = game.players[playerIdx].deckTilesBits.cur
-        game.players[playerIdx].deckTilesBits.animPos = 0
-        game.players[playerIdx].deckTilesBits.animLen = 60
-
-        for i := 0; i < 7; i++ {
-            shift := (7-i-1)*8
-            if ((game.players[playerIdx].deckTilesBits.cur >> shift) & 0x7f) == 0 {
-                tile := game.takeTileFromBag()
-                if tile == 0 {
-                    break
-                }
-                game.players[playerIdx].deckTilesBits.cur |= uint64(tile & 0x7f) << shift
-            }
+    if game.shuffleTimer > 0 {
+        game.shuffleTimer--
+        if didPlace {
+            p.waitingToPlace = true
         }
-        game.state.cur = uint64(SCORING_TURN | (playerIdx & 3))
-        game.players[playerIdx].nTilesHeld = 0
-        game.players[playerIdx].turnOffsetsBits.cur = 0
-    } else {
-        // this allows to draw the previous deck value, and the current new tiles if part of the picking animation
-        game.players[playerIdx].deckTilesBits.prev = game.players[playerIdx].deckTilesBits.cur
+    }
+    if game.shuffleTimer == 0 {
+        if didPlace || p.waitingToPlace {
+            p.waitingToPlace = false
+
+            p.deckTilesBits.prev = p.deckTilesBits.cur
+            p.deckTilesBits.animPos = 0
+            p.deckTilesBits.animLen = 60
+
+            for i := 0; i < 7; i++ {
+                shift := (7-i-1)*8
+                if ((p.deckTilesBits.cur >> shift) & 0x7f) == 0 {
+                    tile := game.takeTileFromBag()
+                    if tile == 0 {
+                        break
+                    }
+                    p.deckTilesBits.cur |= uint64(tile & 0x7f) << shift
+                }
+            }
+            game.state.cur = uint64(SCORING_TURN | (playerIdx & 3))
+            p.nTilesHeld = 0
+            p.turnOffsetsBits.cur = 0
+        } else if shouldShuffle {
+            game.updateShuffleBuffer()
+            oldDeck := p.deckTilesBits.cur
+            newDeck := uint64(0)
+            for i := 0; i < 7; i++ {
+                n := (oldDeck >> ((7-i-1) * 8)) & 0x7f
+                newDeck |= n << (game.shuffleBuf[i] * 8)
+            }
+            p.deckTilesBits.prev = oldDeck
+            p.deckTilesBits.cur = newDeck
+            game.shuffleTimer = SHUFFLE_DURATION
+        } else {
+            // this allows to draw the previous deck value, and the current new tiles if part of the picking animation
+            p.deckTilesBits.prev = p.deckTilesBits.cur
+        }
     }
 
-    game.players[playerIdx].turnState.step()
-    game.players[playerIdx].turnOffsetsBits.step()
+    p.turnState.step()
+    p.turnOffsetsBits.step()
 }
 
 func (game *Game) simulateScoringTurn(inputs *Inputs, playerIdx int32) {

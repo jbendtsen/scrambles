@@ -19,6 +19,7 @@ const KEY_LSHIFT = rl.KeyLeftShift
 const KEY_RSHIFT = rl.KeyRightShift
 const KEY_LCTRL = rl.KeyLeftControl
 const KEY_RCTRL = rl.KeyRightControl
+const KEY_TAB = rl.KeyTab
 const KEY_UP = rl.KeyUp
 const KEY_DOWN = rl.KeyDown
 const KEY_LEFT = rl.KeyLeft
@@ -51,6 +52,13 @@ var boardTileColorsRgba = [...]uint32 {
     0xe00000ff,
     0x80d0ffff,
     0x00a0e0ff,
+}
+
+var playerDeckColors = [...]color.RGBA {
+    {128, 0, 0, 255},
+    {0, 0, 192, 255},
+    {128, 128, 0, 255},
+    {0, 64, 16, 255},
 }
 
 func updateColor(color *color.RGBA, rgba uint32) {
@@ -138,15 +146,20 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
             rl.DrawTexture(textures.tileHl, xHl, yHl, rl.White)
         }
 
-        t := float32(1.0)
-        if game.state.animLen > 0 {
-            t = float32(game.state.animPos) / float32(game.state.animLen)
-            prev := int32(game.state.prev) & ^3
-            if prev >= PLAYER_TURN {
-                drawDeck(game, textures, int32(game.state.prev) & 3, -(1.0 + t), DECK_OPENING)
+        if game.shuffleTimer > 0 {
+            t := float32(game.shuffleTimer) / float32(SHUFFLE_DURATION)
+            drawDeck(game, textures, player, t, DECK_SHUFFLE)
+        } else {
+            t := float32(1.0)
+            if game.state.animLen > 0 {
+                t = float32(game.state.animPos) / float32(game.state.animLen)
+                prev := int32(game.state.prev) & ^3
+                if prev >= PLAYER_TURN {
+                    drawDeck(game, textures, int32(game.state.prev) & 3, -(1.0 + t), DECK_OPENING)
+                }
             }
+            drawDeck(game, textures, player, t, DECK_OPENING)
         }
-        drawDeck(game, textures, player, t, DECK_OPENING)
     }
 
     for i := 0; i < 15 * 15; i++ {
@@ -209,55 +222,79 @@ func drawDeck(game *Game, textures *Textures, playerIdx int32, t float32, animMo
 	deckH := int32(dstRect.Height + deckPadding)
     deckX := int32((1.0 - it2) * float32(game.wndWidth)) - ((game.wndWidth + deckW) / 2)
     deckY := int32(yBoardOff + boardLen) + (leftoverH / 2) - (deckH / 2)
-    rl.DrawRectangle(deckX, deckY, deckW, deckH, color.RGBA{0, 64, 16, 255})
+    rl.DrawRectangle(deckX, deckY, deckW, deckH, playerDeckColors[playerIdx])
 
+    p := &game.players[playerIdx]
     origin := rl.Vector2{}
 
-    for i := 0; i < 7; i++ {
-        t = 0.0
-        tileIndex := int((game.players[playerIdx].deckTilesBits.prev >> ((7-i-1)*8)) & 0x7f) - 1
-		if tileIndex < 0 {
-		    tileIndex = int((game.players[playerIdx].deckTilesBits.cur >> ((7-i-1)*8)) & 0x7f) - 1
+    if animMode == DECK_SHUFFLE {
+        for i := 0; i < 7; i++ {
+            prevTile := int((p.deckTilesBits.prev >> ((7-i-1)*8)) & 0x7f) - 1
+            if prevTile < 0 {
+                continue
+            }
+
+            //xOff := float32(0.0)
+            //curTile := int((p.deckTilesBits.cur >> ((7-i-1)*8)) & 0x7f) - 1
+            //if prevTile != curTile {
+            dstIdx := 6 - game.shuffleBuf[i]
+            xOff := float32(i) * t + float32(dstIdx) * (1.0 - t)
+
+            tileRect.X = float32((prevTile % 9) * textures.largeTileSize)
+            tileRect.Y = float32((prevTile / 9) * textures.largeTileSize)
+            dstRect.X = float32(deckX + deckSidePad) + xOff * (dstRect.Width + deckPadding)
+            dstRect.Y = float32(deckY)
+            rl.DrawTexturePro(textures.tilesLarge, tileRect, dstRect, origin, 0.0, rl.White)
+        }
+    } else {
+        for i := 0; i < 7; i++ {
+            t = 0.0
+            tileIndex := int((p.deckTilesBits.prev >> ((7-i-1)*8)) & 0x7f) - 1
 		    if tileIndex < 0 {
-			    continue
+		        tileIndex = int((p.deckTilesBits.cur >> ((7-i-1)*8)) & 0x7f) - 1
+		        if tileIndex < 0 {
+			        continue
+		        }
+		        if p.deckTilesBits.animLen > 0 {
+		            t = min(float32(p.deckTilesBits.animPos - int32(i*2)) / float32(p.deckTilesBits.animLen - 14), 1.0)
+		            t = (1.0 - t) * (1.0 - t)
+	            }
 		    }
-		    if game.players[playerIdx].deckTilesBits.animLen > 0 {
-		        t = min(float32(game.players[playerIdx].deckTilesBits.animPos - int32(i*2)) / float32(game.players[playerIdx].deckTilesBits.animLen - 14), 1.0)
-		        t = (1.0 - t) * (1.0 - t)
-	        }
-		}
-        tileRect.X = float32((tileIndex % 9) * textures.largeTileSize)
-        tileRect.Y = float32((tileIndex / 9) * textures.largeTileSize)
-        dstRect.X = float32(deckX + deckSidePad) + float32(i) * (dstRect.Width + deckPadding)
-        dstRect.Y = float32(deckY) + (t * dstRect.Height * 5.0)
-        rl.DrawTexturePro(textures.tilesLarge, tileRect, dstRect, origin, 0.0, rl.White)
+
+            tileRect.X = float32((tileIndex % 9) * textures.largeTileSize)
+            tileRect.Y = float32((tileIndex / 9) * textures.largeTileSize)
+            dstRect.X = float32(deckX + deckSidePad) + float32(i) * (dstRect.Width + deckPadding)
+            dstRect.Y = float32(deckY) + (t * dstRect.Height * 5.0)
+            rl.DrawTexturePro(textures.tilesLarge, tileRect, dstRect, origin, 0.0, rl.White)
+        }
     }
 }
 
 func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, tileRect rl.Rectangle) {
     origin := rl.Vector2{}
 
-    tTurnRot := float64(game.players[playerIdx].turnState.getPositionOr(0.0))
+    p := &game.players[playerIdx]
+    tTurnRot := float64(p.turnState.getPositionOr(0.0))
 
     dstRect := tileRect
     xDir := float32(math.Abs(math.Cos(0.5 * math.Pi * tTurnRot)))
     yDir := float32(math.Abs(math.Sin(0.5 * math.Pi * tTurnRot)))
 
-    if game.players[playerIdx].turnState.prev == ROTA_VERT {
+    if p.turnState.prev == ROTA_VERT {
         xDir, yDir = yDir, xDir
     }
 
     offsetCur := float32(0)
     offsetPrev := float32(0)
-    nHeld := game.players[playerIdx].nTilesHeld
+    nHeld := p.nTilesHeld
 
     for i := int32(0); i < nHeld; i++ {
-        tileIndex := int(game.players[playerIdx].turnTiles[i]) - 1
+        tileIndex := int(p.turnTiles[i]) - 1
 		if tileIndex < 0 {
 			break
 		}
-		offsetCur  += float32((game.players[playerIdx].turnOffsetsBits.cur >> ((nHeld-i-1)*4)) & 0xf)
-		offsetPrev += float32((game.players[playerIdx].turnOffsetsBits.prev >> ((nHeld-i-1)*4)) & 0xf)
+		offsetCur  += float32((p.turnOffsetsBits.cur >> ((nHeld-i-1)*4)) & 0xf)
+		offsetPrev += float32((p.turnOffsetsBits.prev >> ((nHeld-i-1)*4)) & 0xf)
 	    pos := float32(i) + float32(tTurnRot) * offsetCur + float32(1.0 - tTurnRot) * offsetPrev
 
 		tileRect.X = float32((tileIndex % 9) * textures.smallTileSize)
