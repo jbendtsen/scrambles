@@ -1,1 +1,8 @@
+- fuse and bomb ui along bottom of screen to display time left
+- font for user interface
+- config: menu and fonts, generated and read but not required to be extant
+- difficulty:
+    old school = no word validation, the opposing player may reject your word
+    automatic = the game won't let you place invalid words
+    x-ray vision = all new words are shown to be valid or invalid (in green or red) at all times, and the game won't let you place invalid words
 - move tiles and rotate tiles ui

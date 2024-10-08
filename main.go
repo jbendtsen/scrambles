@@ -40,7 +40,8 @@ type Textures struct {
 	letterGlyphsLarge []rl.GlyphInfo
 	numberGlyphsSmall []rl.GlyphInfo
 	numberGlyphsLarge []rl.GlyphInfo
-	fontData []byte
+	fontDataTiles []byte
+	fontDataUi []byte
 	smallTileSize int
 	largeTileSize int
 	tileHlBorderSize int
@@ -143,7 +144,7 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         if boardCurX >= 0 && boardCurY >= 0 && col >= 0 && col < 15 && row >= 0 && row < 15 {
             xHl := int32(xBoardOff + (col * tileSize) - textures.tileHlBorderSize)
             yHl := int32(yBoardOff + (row * tileSize) - textures.tileHlBorderSize)
-            rl.DrawTexture(textures.tileHl, xHl, yHl, rl.White)
+            rl.DrawTexture(textures.tileHl, xHl, yHl, color.RGBA{255, 240, 160, 255})
         }
 
         if game.shuffleTimer > 0 {
@@ -167,6 +168,9 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         if tileIndex < 0 {
             continue
         }
+        if tileIndex >= 32 {
+		    tileIndex -= 5
+		}
         x := i % 15
         y := i / 15
         pos.X = float32(xBoardOff + tileOff + (x * tileSize))
@@ -185,10 +189,9 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
         drawTurn(game, textures, inputs, player, rect)
     } else if mode == SCORING_TURN {
         //tRefill := game.players[player].deckTilesBits.getPosition()
+        //fmt.Println(game.state.animPos)
         drawDeck(game, textures, player, 1.0, DECK_REFILL)
-
-        tScoring := game.state.getPositionOr(0.0)
-        drawScoring(game, textures, player, tScoring, rect)
+        drawScoring(game, textures, player, rect)
     }
 
 	isGameOver = false
@@ -289,10 +292,14 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
     nHeld := p.nTilesHeld
 
     for i := int32(0); i < nHeld; i++ {
-        tileIndex := int(p.turnTiles[i]) - 1
+        tileIndex := int(p.turnLetters[i]) - 1
 		if tileIndex < 0 {
 			break
 		}
+		if tileIndex >= 32 {
+		    tileIndex -= 5
+		}
+
 		offsetCur  += float32((p.turnOffsetsBits.cur >> ((nHeld-i-1)*4)) & 0xf)
 		offsetPrev += float32((p.turnOffsetsBits.prev >> ((nHeld-i-1)*4)) & 0xf)
 	    pos := float32(i) + float32(tTurnRot) * offsetCur + float32(1.0 - tTurnRot) * offsetPrev
@@ -301,12 +308,34 @@ func drawTurn(game *Game, textures *Textures, inputs *Inputs, playerIdx int32, t
         tileRect.Y = float32((tileIndex / 9) * textures.smallTileSize)
         dstRect.X = game.turnCursorX - float32(game.tileSize / 2) + xDir * pos * float32(game.tileSize)
         dstRect.Y = game.turnCursorY - float32(game.tileSize / 2) + yDir * pos * float32(game.tileSize)
+
         rl.DrawTexturePro(textures.tilesSmall, tileRect, dstRect, origin, 0.0, rl.White)
     }
 }
 
-func drawScoring(game *Game, textures *Textures, playerIdx int32, tOpening float32, tileRect rl.Rectangle) {
-    // TODO
+func drawScoring(game *Game, textures *Textures, playerIdx int32, tileRect rl.Rectangle) {
+    nCmds := int32(len(game.scoringCommands))
+    cmdIdx := game.state.animPos / TILE_SCORE_DURATION
+    if nCmds == 0 || cmdIdx >= nCmds {
+        return
+    }
+
+    tileSize := int(game.tileSize)
+    boardLen := tileSize * 15
+    xBoardOff := (int(game.wndWidth) - boardLen) / 2
+    yBoardOff := (int(game.wndHeight) - boardLen - 2 * tileSize) / 2
+    //tileOff := (tileSize - textures.smallTileSize) / 2
+
+    textSize := min(game.wndWidth, game.wndHeight) / 32
+
+    cmd := game.scoringCommands[cmdIdx]
+    col := int((cmd >> 8) % 15)
+    row := int((cmd >> 8) / 15)
+    number := cmd & 0xff
+
+    x := int32(xBoardOff + tileSize * (col + 1))
+    y := int32(yBoardOff + tileSize * row)
+    rl.DrawText(game.scoreDisplayStrings[number], x, y, textSize, rl.Black)
 }
 
 func maybeRecreateBoard(tex *rl.Texture2D, wndWidth, wndHeight, oldTileSize int32) (tileSize int32) {
@@ -390,25 +419,25 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
 	}
 
 	textures.letterGlyphsSmall = rl.LoadFontData(
-		textures.fontData,
+		textures.fontDataTiles,
 		int32(float64(tileSize) * 0.9),
 		letterCodePoints,
 		rl.FontDefault,
 	)
 	textures.letterGlyphsLarge = rl.LoadFontData(
-		textures.fontData,
+		textures.fontDataTiles,
 		int32(float64(tileSize) * 0.9 * 1.4),
 		letterCodePoints,
 		rl.FontDefault,
 	)
 	textures.numberGlyphsSmall = rl.LoadFontData(
-		textures.fontData,
+		textures.fontDataTiles,
 		int32(float64(tileSize) * 0.33),
 		numberCodePoints,
 		rl.FontDefault,
 	)
 	textures.numberGlyphsLarge = rl.LoadFontData(
-		textures.fontData,
+		textures.fontDataTiles,
 		int32(float64(tileSize) * 0.33 * 1.4),
 		numberCodePoints,
 		rl.FontDefault,
@@ -435,7 +464,7 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
 
     smallTileSize := min(tileSize - 1, int32(float64(tileSize) * 0.95))
     largeTileSize := int32(1.4 * float64(smallTileSize))
-    tilesImageSmall := rl.GenImageColor(int(9 * smallTileSize), int(3 * smallTileSize), rl.White)
+    tilesImageSmall := rl.GenImageColor(int(9 * smallTileSize), int(6 * smallTileSize), rl.White)
     tilesImageLarge := rl.GenImageColor(int(9 * largeTileSize), int(3 * largeTileSize), rl.White)
 
     textures.smallTileSize = int(smallTileSize)
@@ -444,7 +473,7 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
     hlSize := textures.tileHlBorderSize * 2 + textures.smallTileSize
 
     tileHlImage := rl.GenImageColor(hlSize, hlSize, rl.White)
-    makeTileHighlight(tileHlImage.Data, int32(hlSize), int32(hlSize), smallTileSize, smallTileSize, 0xfff0a0ff)
+    makeTileHighlight(tileHlImage.Data, int32(hlSize), int32(hlSize), smallTileSize, smallTileSize, 0xffffffff)
     if textures.tileHl.ID > 0 {
         rl.UnloadTexture(textures.tileHl)
     }
@@ -462,12 +491,13 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
     scores := getLetterScores()
     for i := int32(0); i < 26; i++ {
         renderTile(tilesImageSmall, textures.letterGlyphsSmall, textures.numberGlyphsSmall, i, int32(scores[i]), smallTileSize)
+        renderTile(tilesImageSmall, textures.letterGlyphsSmall, textures.numberGlyphsSmall, 27 + i, 0, smallTileSize)
         renderTile(tilesImageLarge, textures.letterGlyphsLarge, textures.numberGlyphsLarge, i, int32(scores[i]), largeTileSize)
     }
 
     tdsIntSmall := int(smallTileSize)
     tdsIntLarge := int(largeTileSize)
-    roundTileEdges(tilesImageSmall.Data, 9, 3, tdsIntSmall, tdsIntSmall, int(float64(tdsIntSmall) * 0.15))
+    roundTileEdges(tilesImageSmall.Data, 9, 6, tdsIntSmall, tdsIntSmall, int(float64(tdsIntSmall) * 0.15))
     roundTileEdges(tilesImageLarge.Data, 9, 3, tdsIntLarge, tdsIntLarge, int(float64(tdsIntLarge) * 0.15))
 
     if textures.tilesSmall.ID > 0 {
@@ -488,8 +518,7 @@ func updateTextures(textures *Textures, wndWidth, wndHeight, oldTileSize int32) 
 func renderTile(tilesImage *rl.Image, letterGlyphs, numberGlyphs []rl.GlyphInfo, idx, points, tileSize int32) {
     srcRect := rl.Rectangle{}
     dstRect := rl.Rectangle{}
-    letter := &letterGlyphs[idx].Image
-    number := &numberGlyphs[points % 10].Image
+    letter := &letterGlyphs[idx % 27].Image
     lift := -float32(letter.Height) * 0.15
 
     dstRect.X = float32(((idx % 9) * tileSize) + (tileSize - letter.Width) / 2)
@@ -498,8 +527,15 @@ func renderTile(tilesImage *rl.Image, letterGlyphs, numberGlyphs []rl.GlyphInfo,
     dstRect.Height = float32(letter.Height)
     srcRect.Width  = dstRect.Width
     srcRect.Height = dstRect.Height
+
+    if points <= 0 {
+        rl.ImageDraw(tilesImage, letter, srcRect, dstRect, rl.Gray)
+        return
+    }
+
     rl.ImageDraw(tilesImage, letter, srcRect, dstRect, rl.Black)
 
+    number := &numberGlyphs[points % 10].Image
     corner := 2 * tileSize / 3
     dstRect.X = float32(((idx % 9) * tileSize) + corner + (tileSize / 3 - number.Width) / 2)
     dstRect.Y = float32(((idx / 9) * tileSize) + corner + (tileSize / 3 - number.Height) / 2)
@@ -662,7 +698,7 @@ func main() {
 	rl.SetTargetFPS(fps)
 
 	textures := Textures{}
-	textures.fontData = ttfData
+	textures.fontDataTiles = ttfData
 
     inputs := makeInputs()
 
