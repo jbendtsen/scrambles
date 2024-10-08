@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"time"
+	"strconv"
 	"strings"
 	"image/color"
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -80,8 +81,11 @@ func drawMenu(game *Game, inputs *Inputs, isMenuActive bool) (shouldStartGame bo
 		return false
 	}
 
-    game.menu.nPlayers = 2
     game.menu.timeLimitSecs = 120
+    for i := 0; i < 2; i++ {
+        game.players[i].kind = PLAYER_REAL
+        game.players[i+2].kind = PLAYER_INACTIVE
+    }
 
 	shouldStartGame = false
 	if (inputs.mouseButtons[0] & 1) == 1 {
@@ -135,6 +139,24 @@ func drawGame(game *Game, textures *Textures, inputs *Inputs) (isGameOver bool) 
     xBoardOff := (int(game.wndWidth) - boardLen) / 2
     yBoardOff := (int(game.wndHeight) - boardLen - 2 * tileSize) / 2
     tileOff := (tileSize - textures.smallTileSize) / 2
+
+    {
+        textSize := min(game.wndWidth, game.wndHeight) / 32
+        wScore := textSize * 4
+        hScore := (textSize * 5) / 4
+        xScore := int32(xBoardOff) - wScore - textSize
+        yScore := int32(yBoardOff) + textSize
+        textOff := hScore / 2
+
+        for i := 0; i < 4; i++ {
+            if game.players[i].kind == PLAYER_INACTIVE {
+                continue
+            }
+            rl.DrawRectangle(xScore, yScore, wScore, hScore, playerDeckColors[i])
+            rl.DrawText(strconv.Itoa(int(game.players[i].totalScore)), xScore + textOff, yScore + textOff, textSize, rl.White)
+            yScore += hScore + (textSize / 2)
+        }
+    }
 
     if mode == PLAYER_TURN {
         boardCurX := int(game.turnCursorX) - xBoardOff

@@ -12,12 +12,14 @@ type Animation struct {
 }
 
 type MainMenu struct {
-	nPlayers int
 	timeLimitSecs int
 	shouldValidateEveryWord bool
 }
 
 type Player struct {
+    kind int32
+    totalScore int32
+    turnScore int32
     nTilesHeld int32
 	turnLetters [7]int8
 	turnPositions [7]uint8
@@ -100,6 +102,11 @@ const DECK_SHUFFLE = 2
 
 const SHUFFLE_DURATION = 10
 const TILE_SCORE_DURATION = 30
+
+const PLAYER_INACTIVE = 0
+const PLAYER_REAL = 1
+const PLAYER_CPU_EASY = 2
+const PLAYER_CPU_HARD = 3
 
 var boardTileTypeLookup = [...]int32 {
     2, 0, 0, 3, 0, 0, 0, 2,
@@ -273,6 +280,8 @@ func (game *Game) start() {
 		game.boardTiles[i] = 0
 	}
 	for i := 0; i < 4; i++ {
+	    game.players[i].totalScore = 0
+	    game.players[i].turnScore = 0
 	    for j := 0; j < 7; j++ {
 		    game.players[i].turnLetters[j] = 0
 		    game.players[i].turnPositions[j] = 0
@@ -287,7 +296,10 @@ func (game *Game) start() {
     game.state.animPos = 0
     game.state.animLen = 80
 
-    for i := 0; i < game.menu.nPlayers; i++ {
+    for i := 0; i < 4; i++ {
+        if game.players[i].kind == PLAYER_INACTIVE {
+            continue
+        }
         for j := 0; j < 7; j++ {
             tile := game.takeTileFromBag()
             game.players[i].deckTilesBits.cur <<= 8
@@ -531,7 +543,7 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
         p.nTilesHeld = 0
         p.turnOffsetsBits.cur = 0
 
-        game.findNewWords(p)
+        score := game.findNewWords(p)
         allWordsAreValid := true
 
         if game.menu.shouldValidateEveryWord {
@@ -546,6 +558,7 @@ func (game *Game) simulatePlayerTurn(inputs *Inputs, playerIdx int32) {
         }
 
         if allWordsAreValid {
+            p.turnScore = int32(score)
             game.state.animPos = 0
             game.state.animLen = max(p.deckTilesBits.animLen, int32(len(game.scoringCommands) * TILE_SCORE_DURATION))
             game.state.cur = uint64(SCORING_TURN | (playerIdx & 3))
@@ -579,6 +592,9 @@ func (game *Game) simulateScoringTurn(inputs *Inputs, playerIdx int32) {
 
     p.deckTilesBits.step()
     if game.state.animLen == 0 && p.deckTilesBits.animLen == 0 {
+        p.totalScore += p.turnScore
+        p.turnScore = 0
+
         for i := 0; i < 7; i++ {
             p.turnLetters[i] = 0
             p.turnPositions[i] = 0
@@ -588,13 +604,21 @@ func (game *Game) simulateScoringTurn(inputs *Inputs, playerIdx int32) {
 
         game.updateCursor(inputs)
 
-        game.state.cur = uint64(PLAYER_TURN | ((playerIdx + 1) % int32(game.menu.nPlayers)))
+        nextPlayer := (playerIdx + 1) % 4
+        for i := 0; i < 3; i++ {
+            if game.players[nextPlayer].kind != PLAYER_INACTIVE {
+                break
+            }
+            nextPlayer = (nextPlayer + 1) % 4
+        }
+
+        game.state.cur = uint64(PLAYER_TURN | nextPlayer)
         game.state.animPos = 0
         game.state.animLen = 80
     }
 }
 
-func (game *Game) findNewWords(p *Player) {
+func (game *Game) findNewWords(p *Player) (totalScore int) {
     game.scoringWords = game.scoringWords[0:0]
     game.scoringCommands = game.scoringCommands[0:0]
     game.activeLines = game.activeLines[0:0]
@@ -651,6 +675,8 @@ func (game *Game) findNewWords(p *Player) {
         }
     }
 
+    totalScore = 0
+
     for i := 0; i < len(game.activeLines); i++ {
         start := int32(game.activeLines[i]) % (15 * 15)
         end   := int32(game.activeLines[i]) / (15 * 15)
@@ -661,6 +687,7 @@ func (game *Game) findNewWords(p *Player) {
         }
 
         game.wordBuilder.Reset()
+        wordScore := 0
         wordMultipliers := uint64(0) // the maximum number of word multipliers per line is 3, so uint64 is fine here
         pos := start
 
@@ -692,11 +719,13 @@ func (game *Game) findNewWords(p *Player) {
                 }
                 if tt == DOUBLE_LETTER || tt == TRIPLE_LETTER {
                     game.scoringCommands = append(game.scoringCommands, cmd)
+                    letterScore *= int32(cmd & 3)
                 } else if tt == DOUBLE_WORD || tt == TRIPLE_WORD {
                     wordMultipliers = wordMultipliers << 16 | uint64(cmd)
                 }
             }
 
+            wordScore += int(letterScore)
             pos += xInc + 15 * yInc
         }
 
@@ -704,8 +733,11 @@ func (game *Game) findNewWords(p *Player) {
 
         for wordMultipliers != 0 {
             game.scoringCommands = append(game.scoringCommands, uint16(wordMultipliers & 0xffff))
+            wordScore *= int(wordMultipliers & 3)
             wordMultipliers >>= 16
         }
+
+        totalScore += wordScore
     }
 
     usedAllTilesInDeck := true
@@ -719,7 +751,10 @@ func (game *Game) findNewWords(p *Player) {
     if usedAllTilesInDeck {
         cmd := uint16((int(p.turnPositions[6]) - 1) << 8 | 50)
         game.scoringCommands = append(game.scoringCommands, cmd)
+        totalScore += 50
     }
+
+    return totalScore
 }
 
 func (a *Animation) step() (justCompleted bool) {
