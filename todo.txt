@@ -1,6 +1,6 @@
-- fuse and bomb ui along bottom of screen to display time left
-- font for user interface
 - config: menu and fonts, generated and read but not required to be extant
+- font for user interface
+- fuse and bomb ui along bottom of screen to display time left
 - difficulty:
     old school = no word validation, the opposing player may reject your word
     automatic = the game won't let you place invalid words

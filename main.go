@@ -644,73 +644,15 @@ func updateInputs(inputs *Inputs) {
     }
 }
 
-func loadTtfData() []byte {
-	entries, err := os.ReadDir("assets/")
-	if err != nil {
-		fmt.Println("Could not open assets folder")
-		return nil
-	}
-
-	var ttfName string
-	for i := 0; i < len(entries); i++ {
-		fname := entries[i].Name()
-		if strings.HasSuffix(fname, ".ttf") {
-			ttfName = fname
-			break
-		}
-	}
-
-	if ttfName == "" {
-		fmt.Println("Could not a ttf file in the assets folder")
-		return nil
-	}
-
-	f, err := os.Open("assets/" + ttfName)
-	if err != nil {
-		fmt.Println("Could not open assets/" + ttfName)
-		return nil
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		fmt.Println("Could not read font from assets/" + ttfName)
-		return nil
-	}
-
-	return data
-}
-
-func loadWords() []string {
-	wordsFile, err := os.Open("assets/all-words.txt")
-	if err != nil {
-		fmt.Println("Could not open assets/all-words.txt")
-		return nil
-	}
-	defer wordsFile.Close()
-
-	wordsBytes, err := io.ReadAll(wordsFile)
-	if err != nil {
-		fmt.Println("Could not read word list from assets/all-words.txt")
-		return nil
-	}
-
-	return strings.Split(string(wordsBytes), "\n")
-}
-
 func main() {
-	wordsList := loadWords()
-	if wordsList == nil {
+    config, assets, err := loadConfig()
+	if err != nil {
 		return
 	}
+	defer saveConfig(&config)
 
 	game := Game{}
-	game.init(wordsList, time.Now().UnixMilli())
-
-	ttfData := loadTtfData()
-	if ttfData == nil {
-		return
-	}
+	game.init(assets.wordsList, time.Now().UnixMilli())
 
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(800, 450, "scrambles")
@@ -720,7 +662,8 @@ func main() {
 	rl.SetTargetFPS(fps)
 
 	textures := Textures{}
-	textures.fontDataTiles = ttfData
+	textures.fontDataTiles = assets.tilesFont
+	textures.fontDataUi = assets.uiFont
 
     inputs := makeInputs()
 
