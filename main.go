@@ -1,8 +1,6 @@
 package main
 
 import (
-	"io"
-	"os"
 	"fmt"
 	"math"
 	"time"
@@ -652,7 +650,7 @@ func main() {
 	defer saveConfig(&config)
 
 	game := Game{}
-	game.init(assets.wordsList, time.Now().UnixMilli())
+	game.init(assets.wordList, time.Now().UnixMilli())
 
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(800, 450, "scrambles")

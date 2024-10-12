@@ -3,7 +3,9 @@ package main
 import (
 	"io"
 	"os"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -22,133 +24,127 @@ type Assets struct {
     uiFont []byte
 }
 
-func loadFile(fileName string) []byte, error {
-	wordsFile, err := os.Open()
+func loadFile(fileName string) ([]byte, error) {
+	file, err := os.Open(fileName)
 	if err != nil {
 		fmt.Println("Could not open assets/all-words.txt")
-		return nil
+		return nil, err
 	}
-	defer wordsFile.Close()
+	defer file.Close()
 
-	wordsBytes, err := io.ReadAll(wordsFile)
+	data, err := io.ReadAll(file)
 	if err != nil {
 		fmt.Println("Could not read word list from assets/all-words.txt")
-		return nil
-	}
-}
-
-func loadTtfData() []byte {
-	entries, err := os.ReadDir("assets/")
-	if err != nil {
-		fmt.Println("Could not open assets folder")
-		return nil
+		return nil, err
 	}
 
-	var ttfName string
-	for i := 0; i < len(entries); i++ {
-		fname := entries[i].Name()
-		if strings.HasSuffix(fname, ".ttf") {
-			ttfName = fname
-			break
-		}
-	}
-
-	if ttfName == "" {
-		fmt.Println("Could not a ttf file in the assets folder")
-		return nil
-	}
-
-	f, err := os.Open("assets/" + ttfName)
-	if err != nil {
-		fmt.Println("Could not open assets/" + ttfName)
-		return nil
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		fmt.Println("Could not read font from assets/" + ttfName)
-		return nil
-	}
-
-	return data
-}
-
-func loadWords() byte[] {
-    data, err := loadFile("assets/all-words.txt")
-	return strings.Split(string(wordsBytes), "\n")
+    return data, nil
 }
 
 func makeDefaultConfig() Config {
-    return {
+    return Config{
         "assets/all-words.txt",
         "assets/Cantarell_700Bold.ttf",
         "assets/Cabin-SemiBold.ttf",
-        "real real none none",
+        [4]string{"real", "real", "none", "none"},
         "classic",
-        120
+        120,
     }
 }
 
-func loadConfig() (config Config, assets Assets, err error) {
-    configFields = reflect.ValueOf(&config).Elem()
-    assetsFields = reflect.ValueOf(&assets).Elem()
+func saveConfig(config *Config) {
+    configFields := reflect.ValueOf(config).Elem()
+    configType := configFields.Type()
+    nConfigKeys := configFields.NumField()
+    var builder strings.Builder
 
+    for i := 0; i < nConfigKeys; i++ {
+        field := configFields.Field(i)
+        t := field.Type().Name()
+        builder.WriteString(configType.Field(i).Name)
+        if t == "int" {
+            builder.WriteString(strconv.Itoa(field.Interface().(int)))
+        } else if t == "string" {
+            builder.WriteString(field.Interface().(string))
+        } else {
+            builder.WriteString(strings.Join(field.Interface().([]string), " "))
+        }
+    }
+
+    os.WriteFile("config.txt", []byte(builder.String()), 0666)
+}
+
+func loadConfig() (config Config, assets Assets, err error) {
+    configFields := reflect.ValueOf(&config).Elem()
+    assetsFields := reflect.ValueOf(&assets).Elem()
+
+    configType := configFields.Type()
     configKeys := make(map[string]int)
     nConfigKeys := configFields.NumField()
     for i := 0; i < nConfigKeys; i++ {
-        configKeys[configFields.Field(i).Name] = i
+        configKeys[configType.Field(i).Name] = i
     }
 
+    assetType := assetsFields.Type()
     assetKeys := make(map[string]int)
-    nAssetKeys := assetFields.NumField()
+    nAssetKeys := assetsFields.NumField()
     for i := 0; i < nAssetKeys; i++ {
-        assetKeys[assetFields.Field(i).Name] = i
+        assetKeys[assetType.Field(i).Name] = i
     }
 
-    configData, err := loadFile("assets/config.txt")
+    configData, err := loadFile("config.txt")
     if configData != nil {
-        lines := strings.Split(string(wordsBytes), "\n")
-        for l := range lines {
+        lines := strings.Split(string(configData), "\n")
+        for _, l := range lines {
             idx := strings.IndexByte(l, ' ')
             if idx <= 0 {
                 continue
             }
             name := l[:idx]
             configIdx := configKeys[name]
-            if name.Contains("Arr") {
+
+            if strings.Contains(name, "Arr") {
                 values := strings.Split(l[idx+1:], " ")
-                if len(values) == 4 {
-                    arr := configFields.Field(configIdx).Interface()
-                    for i := 0; i < 4; i++ {
-                        arr[i] = values[i]
-                    }
+                if len(values) != 4 {
+                    return Config{}, Assets{}, error("field \"" + name + "\" contains " + len(values) + " fields, not 4\n")
                 }
-            } else if name.Contains("Int") {
+
+                arr := configFields.Field(configIdx).Interface()
+                for i := 0; i < 4; i++ {
+                    arr[i] = values[i]
+                }
+            } else if strings.Contains(name, "Int") {
                 n, err := strconv.Atoi(l[idx+1:])
-                if err == nil {
-                    configFields.Field(configIdx).SetInt(n)
+                if err != nil {
+                    return Config{}, Assets{}, err
                 }
+
+                configFields.Field(configIdx).SetInt(n)
             } else {
                 configFields.Field(configIdx).SetString(l[idx+1:])
             }
         }
     } else {
         config = makeDefaultConfig()
+        saveConfig(&config)
     }
 
     for i := 0; i < nAssetKeys; i++ {
-        name := l[:idx] + "File"
+        assetName := assetType.Field(i).Name
+        name := assetName + "File"
         configIdx := configKeys[name]
         fileName := configFields.Field(configIdx).Interface()
         data, err := loadFile(fileName)
-        if data != nil {
-            field := assetFields.Field(i)
-            if field.Type() != "[]byte" {
-                field.Set(strings.Split(string(data), "\n"))
-            } else {
-                field.SetBytes(data)
-            }
+        if data == nil {
+            err = error("Failed to open " + name + " \"" + fileName + "\"")
+            return Config{}, Assets{}, err
+        }
+
+        field := assetsFields.Field(i)
+        if field.Type() != "[]byte" {
+            field.Set(strings.Split(string(data), "\n"))
+        } else {
+            field.SetBytes(data)
         }
     }
 
