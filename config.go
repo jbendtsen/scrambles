@@ -4,24 +4,25 @@ import (
 	"io"
 	"os"
 	"fmt"
+	"errors"
 	"reflect"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
-    wordListFile string
-    tilesFontFile string
-    uiFontFile string
-    playerTypesArr [4]string
-    gameMode string
-    timeLimitSecondsInt int
+    WordListFile string
+    TilesFontFile string
+    UiFontFile string
+    PlayerTypesArr [4]string
+    GameMode string
+    TimeLimitSecondsInt int
 }
 
 type Assets struct {
-    wordList []string
-    tilesFont []byte
-    uiFont []byte
+    WordList []string
+    TilesFont []byte
+    UiFont []byte
 }
 
 func loadFile(fileName string) ([]byte, error) {
@@ -62,13 +63,21 @@ func saveConfig(config *Config) {
         field := configFields.Field(i)
         t := field.Type().Name()
         builder.WriteString(configType.Field(i).Name)
+        builder.WriteString(" ")
         if t == "int" {
             builder.WriteString(strconv.Itoa(field.Interface().(int)))
         } else if t == "string" {
             builder.WriteString(field.Interface().(string))
         } else {
-            builder.WriteString(strings.Join(field.Interface().([]string), " "))
+            value := reflect.ValueOf(field.Interface())
+            for j := 0; j < 4; j++ {
+                if j != 0 {
+                    builder.WriteString(" ")
+                }
+                builder.WriteString(value.Index(j).Interface().(string))
+            }
         }
+        builder.WriteString("\n")
     }
 
     os.WriteFile("config.txt", []byte(builder.String()), 0666)
@@ -85,11 +94,11 @@ func loadConfig() (config Config, assets Assets, err error) {
         configKeys[configType.Field(i).Name] = i
     }
 
-    assetType := assetsFields.Type()
-    assetKeys := make(map[string]int)
-    nAssetKeys := assetsFields.NumField()
-    for i := 0; i < nAssetKeys; i++ {
-        assetKeys[assetType.Field(i).Name] = i
+    assetsType := assetsFields.Type()
+    assetsKeys := make(map[string]int)
+    nAssetsKeys := assetsFields.NumField()
+    for i := 0; i < nAssetsKeys; i++ {
+        assetsKeys[assetsType.Field(i).Name] = i
     }
 
     configData, err := loadFile("config.txt")
@@ -106,20 +115,22 @@ func loadConfig() (config Config, assets Assets, err error) {
             if strings.Contains(name, "Arr") {
                 values := strings.Split(l[idx+1:], " ")
                 if len(values) != 4 {
-                    return Config{}, Assets{}, error("field \"" + name + "\" contains " + len(values) + " fields, not 4\n")
+                    errMsg := "field \"" + name + "\" contains " + strconv.Itoa(len(values)) + " fields, not 4\n"
+                    return Config{}, Assets{}, errors.New(errMsg)
                 }
 
-                arr := configFields.Field(configIdx).Interface()
+                var arr [4]string
                 for i := 0; i < 4; i++ {
                     arr[i] = values[i]
                 }
+                configFields.Field(configIdx).Set(reflect.ValueOf(arr))
             } else if strings.Contains(name, "Int") {
                 n, err := strconv.Atoi(l[idx+1:])
                 if err != nil {
                     return Config{}, Assets{}, err
                 }
 
-                configFields.Field(configIdx).SetInt(n)
+                configFields.Field(configIdx).SetInt(int64(n))
             } else {
                 configFields.Field(configIdx).SetString(l[idx+1:])
             }
@@ -129,22 +140,24 @@ func loadConfig() (config Config, assets Assets, err error) {
         saveConfig(&config)
     }
 
-    for i := 0; i < nAssetKeys; i++ {
-        assetName := assetType.Field(i).Name
+    for i := 0; i < nAssetsKeys; i++ {
+        assetName := assetsType.Field(i).Name
         name := assetName + "File"
         configIdx := configKeys[name]
-        fileName := configFields.Field(configIdx).Interface()
+        fileName := configFields.Field(configIdx).Interface().(string)
         data, err := loadFile(fileName)
         if data == nil {
-            err = error("Failed to open " + name + " \"" + fileName + "\"")
+            err = errors.New("Failed to open " + name + " \"" + fileName + "\"")
             return Config{}, Assets{}, err
         }
 
-        field := assetsFields.Field(i)
-        if field.Type() != "[]byte" {
-            field.Set(strings.Split(string(data), "\n"))
+        t := assetsFields.Field(i).Type().String()
+        fmt.Println(t)
+        if t != "[]byte" && t != "[]uint8" {
+            arr := strings.Split(string(data), "\n")
+            assetsFields.Field(i).Set(reflect.ValueOf(arr))
         } else {
-            field.SetBytes(data)
+            assetsFields.Field(i).SetBytes(data)
         }
     }
 

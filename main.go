@@ -1,14 +1,14 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"time"
 	"strconv"
-	"strings"
 	"image/color"
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
+
+import "fmt"
 
 const fps = 60
 
@@ -645,12 +645,13 @@ func updateInputs(inputs *Inputs) {
 func main() {
     config, assets, err := loadConfig()
 	if err != nil {
+		fmt.Println(err)
 		return
 	}
 	defer saveConfig(&config)
 
 	game := Game{}
-	game.init(assets.wordList, time.Now().UnixMilli())
+	game.init(assets.WordList, time.Now().UnixMilli())
 
 	rl.SetConfigFlags(rl.FlagWindowResizable)
 	rl.InitWindow(800, 450, "scrambles")
@@ -660,8 +661,8 @@ func main() {
 	rl.SetTargetFPS(fps)
 
 	textures := Textures{}
-	textures.fontDataTiles = assets.tilesFont
-	textures.fontDataUi = assets.uiFont
+	textures.fontDataTiles = assets.TilesFont
+	textures.fontDataUi = assets.UiFont
 
     inputs := makeInputs()
 
